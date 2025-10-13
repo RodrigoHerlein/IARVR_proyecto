@@ -1,7 +1,7 @@
 using UnityEngine;
 using System.Globalization;
 using System.Collections.Generic;
-
+using UnityEngine.XR.Interaction.Toolkit;
 public class MultiAxisPlotter : MonoBehaviour
 {
     /*
@@ -151,7 +151,7 @@ public class MultiAxisPlotter : MonoBehaviour
             axis.transform.localPosition = new Vector3(0, axisHeight / 2f, 0);
 
             // ✅ agregar script de selección
-            axis.AddComponent<SelectableObject>();
+            //axis.AddComponent<SelectableObject>();
 
             axisCylinders[col] = axis.transform;
 
@@ -236,8 +236,29 @@ public class MultiAxisPlotter : MonoBehaviour
                     lr.enabled = false;
 
                     // ✅ Agregar script seleccionable
-                    segGO.AddComponent<SelectableObject>();
+                    //segGO.AddComponent<SelectableObject>();
                     segGO.AddComponent<LineSelectable>();
+                    var grab = segGO.AddComponent<XRGrabInteractable>();
+
+                    // Agregamos acción personalizada
+                    grab.selectEntered.AddListener(args =>
+                    {
+                        var lr = segGO.GetComponent<LineRenderer>();
+                        if (lr != null)
+                        {
+                            lr.startColor = Color.green;
+                            lr.endColor = Color.green;
+                        }
+                    });
+                    grab.selectExited.AddListener(args =>
+                    {
+                        var lr = segGO.GetComponent<LineRenderer>();
+                        if (lr != null)
+                        {
+                            lr.startColor = Color.red;
+                            lr.endColor = Color.red;
+                        }
+                    });
 
                     connDict[(i, j)] = lr;
                 }

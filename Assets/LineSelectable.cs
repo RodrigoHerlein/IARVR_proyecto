@@ -38,16 +38,18 @@ public class LineSelectable : XRBaseInteractable
         Vector3 p1 = lr.GetPosition(0);
         Vector3 p2 = lr.GetPosition(1);
 
-        GameObject colliderObj = new GameObject("LineCollider");
-        colliderObj.transform.SetParent(transform, false);
+        // 👇 En lugar de crear un hijo, usamos un collider en el mismo GameObject
+        CapsuleCollider col = gameObject.GetComponent<CapsuleCollider>();
+        if (!col) col = gameObject.AddComponent<CapsuleCollider>();
 
-        CapsuleCollider col = colliderObj.AddComponent<CapsuleCollider>();
-        col.radius = 0.1f; // grosor del rayo de selección
+        col.radius = 0.05f;
         col.direction = 2; // Z
-        col.center = (p1 + p2) / 2f;
+        col.center = Vector3.zero; // se alinea con transform
         col.height = Vector3.Distance(p1, p2);
-        colliderObj.transform.position = (p1 + p2) / 2f;
-        colliderObj.transform.rotation = Quaternion.FromToRotation(Vector3.forward, p2 - p1);
+
+        // Alineamos el transform al centro de la línea
+        transform.position = (p1 + p2) / 2f;
+        transform.rotation = Quaternion.FromToRotation(Vector3.forward, p2 - p1);
     }
 
     protected override void OnSelectEntered(SelectEnterEventArgs args)
