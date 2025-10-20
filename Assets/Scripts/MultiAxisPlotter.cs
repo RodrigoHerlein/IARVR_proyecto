@@ -142,7 +142,12 @@ public class MultiAxisPlotter : MonoBehaviour
         {
             GameObject axisGO = new GameObject("Axis_" + headers[col]);
             axisGO.transform.SetParent(transform);
+            //posicionamiento de ejes en línea recta
             axisGO.transform.localPosition = new Vector3(col * axisSpacing, 0, 0);
+            /*Posicionamiento con abanico
+            axisGO.transform.localPosition = new Vector3(col * axisSpacing, 0, col * 0.5f);
+            axisGO.transform.localRotation = Quaternion.Euler(0, -10f, 0);
+            */
             axisGO.AddComponent<AxisSelectable>();
             axisParents[col] = axisGO.transform;
 
@@ -151,6 +156,32 @@ public class MultiAxisPlotter : MonoBehaviour
             axis.transform.SetParent(axisGO.transform);
             axis.transform.localScale = new Vector3(axisRadius, axisHeight / 2f, axisRadius);
             axis.transform.localPosition = new Vector3(0, axisHeight / 2f, 0);
+
+
+            // Material de los ejes
+            Renderer rend = axis.GetComponent<Renderer>();
+            rend.material = new Material(Shader.Find("Sprites/Default"));
+            rend.material.color = new Color(0.2f, 0.5f, 1f, 0.8f); // azul suave translúcido
+
+
+            //Tope y base de los ejes
+            GameObject baseCap = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            baseCap.transform.SetParent(axisGO.transform);
+            baseCap.transform.localScale = Vector3.one * axisRadius * 1.2f;
+            baseCap.transform.localPosition = new Vector3(0, 0, 0);
+            Renderer rendBase = baseCap.GetComponent<Renderer>();
+            rendBase.material = new Material(Shader.Find("Sprites/Default"));
+            rendBase.material.color = Color.gray;
+
+            GameObject topCap = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            topCap.transform.SetParent(axisGO.transform);
+            topCap.transform.localScale = Vector3.one * axisRadius * 1.2f;
+            topCap.transform.localPosition = new Vector3(0, axisHeight, 0);
+            Renderer rendTop = topCap.GetComponent<Renderer>();
+            rendTop.material = new Material(Shader.Find("Sprites/Default"));
+            rendTop.material.color = Color.gray;
+
+
 
             // ✅ agregar script de selección
             //axis.AddComponent<SelectableObject>();
@@ -251,11 +282,24 @@ public class MultiAxisPlotter : MonoBehaviour
                     segGO.transform.SetParent(transform);
                     LineRenderer lr = segGO.AddComponent<LineRenderer>();
                     lr.positionCount = 2;
-                    lr.startWidth = 0.05f;
-                    lr.endWidth = 0.05f;
+                    lr.startWidth = 0.03f;
+                    lr.endWidth = 0.03f;
                     lr.material = new Material(Shader.Find("Sprites/Default"));
-                    lr.startColor = Color.red;
-                    lr.endColor = Color.red;
+                    /*lr.startColor = Color.red;
+                    lr.endColor = Color.red;*/
+                    lr.colorGradient = new Gradient()
+                    {
+                        colorKeys = new GradientColorKey[]
+                        {
+                            new GradientColorKey(Color.red, 0f),
+                            new GradientColorKey(Color.red, 1f)
+                        },
+                        alphaKeys = new GradientAlphaKey[]
+                        {
+                            new GradientAlphaKey(0.6f, 0f),
+                            new GradientAlphaKey(0.6f, 1f)
+                        }
+                    };
                     lr.enabled = false;
 
                     // ✅ Agregar script seleccionable
