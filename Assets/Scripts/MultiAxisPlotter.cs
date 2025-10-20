@@ -2,6 +2,8 @@ using UnityEngine;
 using System.Globalization;
 using System.Collections.Generic;
 using UnityEngine.XR.Interaction.Toolkit;
+using TMPro;
+
 public class MultiAxisPlotter : MonoBehaviour
 {
     /*
@@ -152,18 +154,27 @@ public class MultiAxisPlotter : MonoBehaviour
 
             // ✅ agregar script de selección
             //axis.AddComponent<SelectableObject>();
-            
+
 
             axisCylinders[col] = axis.transform;
 
-            GameObject axisLabel = new GameObject("AxisLabel");
+            /*GameObject axisLabel = new GameObject("AxisLabel");
             axisLabel.transform.SetParent(axisGO.transform);
             axisLabel.transform.localPosition = new Vector3(0, axisHeight + 0.2f, 0);
             TextMesh labelMesh = axisLabel.AddComponent<TextMesh>();
             labelMesh.text = headers[col];
             labelMesh.characterSize = 0.3f;
             labelMesh.anchor = TextAnchor.LowerCenter;
-            labelMesh.alignment = TextAlignment.Center;
+            labelMesh.alignment = TextAlignment.Center;*/
+            GameObject axisLabel = new GameObject("AxisLabel");
+            axisLabel.transform.SetParent(axisGO.transform);
+            axisLabel.transform.localPosition = new Vector3(0, axisHeight + 0.2f, 0);
+            TextMeshPro tmp = axisLabel.AddComponent<TextMeshPro>();
+            axisLabel.AddComponent<FaceCamera>();
+            tmp.text = headers[col];
+            tmp.fontSize = 2;
+            tmp.color = Color.white;
+            tmp.alignment = TextAlignmentOptions.Center;
 
             for (int i = 0; i <= subdivisions; i++)
             {
@@ -187,15 +198,26 @@ public class MultiAxisPlotter : MonoBehaviour
                 {
                     lbl = new GameObject("Label_" + i);
                     lbl.transform.SetParent(axisGO.transform);
-                    lbl.AddComponent<TextMesh>();
+                    //lbl.AddComponent<TextMesh>();
+                    
                 }
                 lbl.transform.localPosition = new Vector3(-axisRadius - labelOffset, yPos, 0);
                 lbl.transform.localRotation = Quaternion.identity;
 
-                TextMesh textMesh = lbl.GetComponent<TextMesh>();
+                /*TextMesh textMesh = lbl.GetComponent<TextMesh>();
                 textMesh.text = value.ToString("0.0");
                 textMesh.characterSize = 0.2f;
-                textMesh.anchor = TextAnchor.MiddleRight;
+                textMesh.anchor = TextAnchor.MiddleRight;*/
+
+                TextMeshPro textMesh = lbl.AddComponent<TextMeshPro>();
+                textMesh.text = value.ToString("0.0");
+                textMesh.fontSize = 1.5f;
+                textMesh.color = new Color(1f, 1f, 1f, 0.8f);
+                textMesh.alignment = TextAlignmentOptions.Center;
+                lbl.AddComponent<FaceCamera>();
+                
+
+
             }
         }
     }
