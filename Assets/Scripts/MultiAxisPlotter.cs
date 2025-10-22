@@ -304,8 +304,8 @@ public class MultiAxisPlotter : MonoBehaviour
 
                     // ✅ Agregar script seleccionable
                     //segGO.AddComponent<SelectableObject>();
-                    segGO.AddComponent<LineSelectable>();
-                    
+                    var lineSel = segGO.AddComponent<LineSelectable>();
+                    lineSel.rowIndex = row - 1; // Guarda el índice de la fila a la que pertenece
 
                     connDict[(i, j)] = lr;
                 }
@@ -379,4 +379,21 @@ public class MultiAxisPlotter : MonoBehaviour
         Vector3 localPoint = new Vector3(0f, localY, 0f);
         return axisCylinders[col].parent.TransformPoint(localPoint);
     }
+
+    public void HighlightRow(int rowIndex, Color color)
+    {
+        if (rowIndex < 0 || rowIndex >= rowConnections.Count) return;
+
+        var connDict = rowConnections[rowIndex];
+        foreach (var kvp in connDict)
+        {
+            LineRenderer lr = kvp.Value;
+            if (lr != null)
+            {
+                lr.startColor = color;
+                lr.endColor = color;
+            }
+        }
+    }
+
 }
