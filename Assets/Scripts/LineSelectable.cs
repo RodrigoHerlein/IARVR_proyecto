@@ -14,6 +14,7 @@ public class LineSelectable : MonoBehaviour
     XRGrabInteractable grabInteractable;
     Rigidbody rb;
     Color originalColor;
+    public int rowIndex; // índice de fila (seteado por MultiAxisPlotter)
 
     void Awake()
     {
@@ -106,12 +107,30 @@ public class LineSelectable : MonoBehaviour
     private void OnSelectEnteredEvent(SelectEnterEventArgs args)
     {
         SetLineColor(Color.green);
+
+        var plotter = FindObjectOfType<MultiAxisPlotter>();
+        if (plotter != null)
+            plotter.HighlightRow(rowIndex, Color.green);
     }
 
     private void OnSelectExitedEvent(SelectExitEventArgs args)
     {
         SetLineColor(originalColor);
+
+        var plotter = FindObjectOfType<MultiAxisPlotter>();
+        if (plotter != null)
+            plotter.HighlightRow(rowIndex, originalColor);
     }
+/*
+    private void OnSelectEnteredEvent(SelectEnterEventArgs args)
+    {
+        SetLineColor(Color.green);
+    }
+
+    private void OnSelectExitedEvent(SelectExitEventArgs args)
+    {
+        SetLineColor(originalColor);
+    }*/
 
     private void SetLineColor(Color c)
     {
