@@ -160,14 +160,20 @@ public class MultiAxisPlotter : MonoBehaviour
             axis.transform.SetParent(axisGO.transform);
             axis.transform.localScale = new Vector3(axisRadius, axisHeight / 2f, axisRadius);
             axis.transform.localPosition = new Vector3(0, axisHeight / 2f, 0);
-
+            //Make the capsule collider larger in order to allow interactions with the poligons that are placer in the borders of the axis
+            var axisCollider = axis.GetComponent<CapsuleCollider>();
+            if (axisCollider != null)
+            {
+                axisCollider.height = axisHeight * 1.1f; // un poco más alto
+                axisCollider.center = new Vector3(0, (axisHeight / 2f) - (axisHeight * 0.5f), 0);
+            }
 
             //Add color to the axis (just aesthetic)
             Renderer rend = axis.GetComponent<Renderer>();
             rend.material = new Material(Shader.Find("Sprites/Default"));
             rend.material.color = new Color(0.2f, 0.5f, 1f, 0.8f); // azul suave translúcido
 
-
+/*
             //Add a top and a base for each axis (just aesthetic)
             GameObject baseCap = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             baseCap.transform.SetParent(axisGO.transform);
@@ -184,7 +190,7 @@ public class MultiAxisPlotter : MonoBehaviour
             Renderer rendTop = topCap.GetComponent<Renderer>();
             rendTop.material = new Material(Shader.Find("Sprites/Default"));
             rendTop.material.color = Color.gray;
-
+*/
 
             axisCylinders[col] = axis.transform;
 

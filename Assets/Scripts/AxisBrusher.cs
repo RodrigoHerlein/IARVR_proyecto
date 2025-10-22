@@ -63,47 +63,54 @@ public class AxisBrusher : MonoBehaviour
         else if (!buttonPressed && lastButtonState)
             TryEndBrush();
 
-        if (buttonPressed && isBrushing)
-            UpdateBrushFromRay();
+        // 🔁 mientras el botón está presionado, seguimos actualizando la visual
+        if (isBrushing)
+            UpdateBrushFromRay(buttonPressed);
 
         lastButtonState = buttonPressed;
     }
 
     private void TryBeginBrush()
-{
-    if (isBrushing) return;
-
-    if (rayInteractor.TryGetCurrent3DRaycastHit(out RaycastHit hit))
     {
-        // solo continuar si el hit pertenece a ESTE eje
-        if (hit.collider != null && hit.collider.transform.IsChildOf(plotter.GetAxisParent(axisIndex)))
+        if (isBrushing) return;
+
+        if (rayInteractor.TryGetCurrent3DRaycastHit(out RaycastHit hit))
         {
-            BeginBrush(hit.point);
+            // continuar sólo si el hit pertenece a este eje
+            if (hit.collider != null && hit.collider.transform.IsChildOf(plotter.GetAxisParent(axisIndex)))
+            {
+                BeginBrush(hit.point);
+            }
         }
     }
-}
 
-
-    private void UpdateBrushFromRay()
+    private void UpdateBrushFromRay(bool buttonHeld)
     {
         if (!isBrushing) return;
 
-        if (rayInteractor.TryGetCurrent3DRaycastHit(out RaycastHit hit))
-            UpdateBrush(hit.point);
+        // si sigue golpeando el eje, actualizamos con el punto real
+        if (rayInteractor.TryGetCurrent3DRaycastHit(out RaycastHit hit) &&
+            hit.collider != null &&
+            hit.collider.transform.IsChildOf(plotter.GetAxisParent(axisIndex)))
+        {
+            brushEndWorld = hit.point;
+        }
+        else if (buttonHeld)
+        {
+            // si no golpea, mantenemos el último punto válido (sin desaparecer)
+        }
+
+        UpdateBrushVisual();
     }
 
     private void TryEndBrush()
     {
         if (!isBrushing) return;
 
-        if (rayInteractor.TryGetCurrent3DRaycastHit(out RaycastHit hit))
-            EndBrush(hit.point);
-        else
-        {
-            isBrushing = false;
-            brushLine.enabled = false;
-        }
+        // usamos el último punto válido, no dependemos del raycast final
+        EndBrush(brushEndWorld);
     }
+
 
     public void BeginBrush(Vector3 hitPointWorld)
     {
