@@ -142,12 +142,16 @@ public class MultiAxisPlotter : MonoBehaviour
         {
             GameObject axisGO = new GameObject("Axis_" + headers[col]);
             axisGO.transform.SetParent(transform);
+
+
             //posicionamiento de ejes en línea recta
             axisGO.transform.localPosition = new Vector3(col * axisSpacing, 0, 0);
-            /*Posicionamiento con abanico
+            
+            /*Posicionamiento de ejes en abanico
             axisGO.transform.localPosition = new Vector3(col * axisSpacing, 0, col * 0.5f);
             axisGO.transform.localRotation = Quaternion.Euler(0, -10f, 0);
             */
+
             axisGO.AddComponent<AxisSelectable>();
             axisParents[col] = axisGO.transform;
 
@@ -158,13 +162,13 @@ public class MultiAxisPlotter : MonoBehaviour
             axis.transform.localPosition = new Vector3(0, axisHeight / 2f, 0);
 
 
-            // Material de los ejes
+            //Add color to the axis (just aesthetic)
             Renderer rend = axis.GetComponent<Renderer>();
             rend.material = new Material(Shader.Find("Sprites/Default"));
             rend.material.color = new Color(0.2f, 0.5f, 1f, 0.8f); // azul suave translúcido
 
 
-            //Tope y base de los ejes
+            //Add a top and a base for each axis (just aesthetic)
             GameObject baseCap = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             baseCap.transform.SetParent(axisGO.transform);
             baseCap.transform.localScale = Vector3.one * axisRadius * 1.2f;
@@ -182,21 +186,9 @@ public class MultiAxisPlotter : MonoBehaviour
             rendTop.material.color = Color.gray;
 
 
-
-            // ✅ agregar script de selección
-            //axis.AddComponent<SelectableObject>();
-
-
             axisCylinders[col] = axis.transform;
 
-            /*GameObject axisLabel = new GameObject("AxisLabel");
-            axisLabel.transform.SetParent(axisGO.transform);
-            axisLabel.transform.localPosition = new Vector3(0, axisHeight + 0.2f, 0);
-            TextMesh labelMesh = axisLabel.AddComponent<TextMesh>();
-            labelMesh.text = headers[col];
-            labelMesh.characterSize = 0.3f;
-            labelMesh.anchor = TextAnchor.LowerCenter;
-            labelMesh.alignment = TextAlignment.Center;*/
+            //Logic to set labels and show them as billboards
             GameObject axisLabel = new GameObject("AxisLabel");
             axisLabel.transform.SetParent(axisGO.transform);
             axisLabel.transform.localPosition = new Vector3(0, axisHeight + 0.2f, 0);
@@ -206,6 +198,10 @@ public class MultiAxisPlotter : MonoBehaviour
             tmp.fontSize = 2;
             tmp.color = Color.white;
             tmp.alignment = TextAlignmentOptions.Center;
+
+            //used for brushing
+            var brusher = axis.AddComponent<AxisBrusher>();
+            brusher.axisIndex = col;
 
             for (int i = 0; i <= subdivisions; i++)
             {
@@ -229,16 +225,10 @@ public class MultiAxisPlotter : MonoBehaviour
                 {
                     lbl = new GameObject("Label_" + i);
                     lbl.transform.SetParent(axisGO.transform);
-                    //lbl.AddComponent<TextMesh>();
                     
                 }
                 lbl.transform.localPosition = new Vector3(-axisRadius - labelOffset, yPos, 0);
                 lbl.transform.localRotation = Quaternion.identity;
-
-                /*TextMesh textMesh = lbl.GetComponent<TextMesh>();
-                textMesh.text = value.ToString("0.0");
-                textMesh.characterSize = 0.2f;
-                textMesh.anchor = TextAnchor.MiddleRight;*/
 
                 TextMeshPro textMesh = lbl.AddComponent<TextMeshPro>();
                 textMesh.text = value.ToString("0.0");
@@ -246,6 +236,8 @@ public class MultiAxisPlotter : MonoBehaviour
                 textMesh.color = new Color(1f, 1f, 1f, 0.8f);
                 textMesh.alignment = TextAlignmentOptions.Center;
                 lbl.AddComponent<FaceCamera>();
+                
+
                 
 
 
@@ -285,8 +277,12 @@ public class MultiAxisPlotter : MonoBehaviour
                     lr.startWidth = 0.03f;
                     lr.endWidth = 0.03f;
                     lr.material = new Material(Shader.Find("Sprites/Default"));
+
+                    //set plain colors for each line
                     /*lr.startColor = Color.red;
                     lr.endColor = Color.red;*/
+
+                    //Set a gradient of colors for each linea
                     lr.colorGradient = new Gradient()
                     {
                         colorKeys = new GradientColorKey[]
@@ -302,8 +298,6 @@ public class MultiAxisPlotter : MonoBehaviour
                     };
                     lr.enabled = false;
 
-                    // ✅ Agregar script seleccionable
-                    //segGO.AddComponent<SelectableObject>();
                     var lineSel = segGO.AddComponent<LineSelectable>();
                     lineSel.rowIndex = row - 1; // Guarda el índice de la fila a la que pertenece
 
@@ -380,6 +374,8 @@ public class MultiAxisPlotter : MonoBehaviour
         return axisCylinders[col].parent.TransformPoint(localPoint);
     }
 
+
+    //Used to select a line through all the axis
     public void HighlightRow(int rowIndex, Color color)
     {
         if (rowIndex < 0 || rowIndex >= rowConnections.Count) return;
@@ -395,5 +391,48 @@ public class MultiAxisPlotter : MonoBehaviour
             }
         }
     }
+
+    //Functions used for brushing
+    public float ValueFromHeight(int col, float localY)
+    {
+        float t = Mathf.Clamp01(localY / maxVisualHeight);
+        return Mathf.Lerp(minValues[col], maxValues[col], t);
+    }
+
+    public void HighlightRange(int axisIndex, float minVal, float maxVal, Color color)
+    {
+        for (int r = 0; r < lineData.Count; r++)
+        {
+            float val = lineData[r][axisIndex];
+            bool inRange = val >= minVal && val <= maxVal;
+
+            foreach (var kvp in rowConnections[r])
+            {
+                LineRenderer lr = kvp.Value;
+                if (lr == null) continue;
+                lr.startColor = lr.endColor = inRange ? color : Color.red; // o restaurar color original
+            }
+        }
+    }
+
+    // Devuelve el transform del parent del eje (el GameObject "Axis_*")
+    public Transform GetAxisParent(int index)
+    {
+        if (axisParents == null || index < 0 || index >= axisParents.Length) return null;
+        return axisParents[index];
+    }
+
+    // Convierte un punto world sobre un eje en el valor numérico correspondiente
+    public float ValueFromWorldPoint(int col, Vector3 worldPoint)
+    {
+        Transform axisParent = GetAxisParent(col);
+        if (axisParent == null) return 0f;
+        // local.y va a estar entre 0 y maxVisualHeight si el axisParent está configurado como en CreateAxes()
+        Vector3 local = axisParent.InverseTransformPoint(worldPoint);
+        float t = Mathf.Clamp01(local.y / maxVisualHeight);
+        return Mathf.Lerp(minValues[col], maxValues[col], t);
+    }
+
+
 
 }
