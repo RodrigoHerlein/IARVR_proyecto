@@ -209,6 +209,7 @@ public class MultiAxisPlotter : MonoBehaviour
             var brusher = axis.AddComponent<AxisBrusher>();
             brusher.axisIndex = col;
 
+            //Create labels in different subdivisions of the axis
             for (int i = 0; i <= subdivisions; i++)
             {
                 float t = i / (float)subdivisions;
@@ -220,6 +221,7 @@ public class MultiAxisPlotter : MonoBehaviour
                     GameObject tick = Instantiate(tickPrefab, axisGO.transform);
                     tick.transform.localPosition = new Vector3(axisRadius + 0.05f, yPos, 0);
                     tick.transform.localScale = new Vector3(tickSize, tickSize, tickSize);
+                    tick.name = $"Tick_{col}_{i}";
                 }
 
                 GameObject lbl;
@@ -229,24 +231,25 @@ public class MultiAxisPlotter : MonoBehaviour
                 }
                 else
                 {
-                    lbl = new GameObject("Label_" + i);
+                    lbl = new GameObject($"TickLabel_{col}_{i}");
                     lbl.transform.SetParent(axisGO.transform);
-                    
                 }
+
+                // Important: name the label always with the axis index and the tick
+                lbl.name = $"TickLabel_{col}_{i}";
+
                 lbl.transform.localPosition = new Vector3(-axisRadius - labelOffset, yPos, 0);
                 lbl.transform.localRotation = Quaternion.identity;
 
-                TextMeshPro textMesh = lbl.AddComponent<TextMeshPro>();
+                TextMeshPro textMesh = lbl.GetComponent<TextMeshPro>();
+                if (textMesh == null)
+                    textMesh = lbl.AddComponent<TextMeshPro>();
+
                 textMesh.text = value.ToString("0.0");
                 textMesh.fontSize = 1.5f;
                 textMesh.color = new Color(1f, 1f, 1f, 0.8f);
                 textMesh.alignment = TextAlignmentOptions.Center;
                 lbl.AddComponent<FaceCamera>();
-                
-
-                
-
-
             }
         }
     }
@@ -438,6 +441,80 @@ public class MultiAxisPlotter : MonoBehaviour
         float t = Mathf.Clamp01(local.y / maxVisualHeight);
         return Mathf.Lerp(minValues[col], maxValues[col], t);
     }
+
+    //Modify axis height using the AxisHeightController class
+    public void UpdateAxesHeight()
+    {
+        if (axisCylinders == null) return;
+
+        // Scale factor relative to base height
+        float baseRef = 5f;
+        float scaleFactor = Mathf.Max(0.0001f, maxVisualHeight / baseRef);
+
+        for (int i = 0; i < axisCylinders.Length; i++)
+        {
+            Transform axis = axisCylinders[i];
+            if (axis == null) continue;
+
+            // Update axis height (axis.localScale.y its half the axis height)
+            axis.localScale = new Vector3(axisRadius * scaleFactor, maxVisualHeight / 2f, axisRadius * scaleFactor);
+            axis.localPosition = new Vector3(0, maxVisualHeight / 2f, 0);
+
+            Transform axisParent = axisParents[i];
+
+            // Change the axis name if it exists
+            Transform axisLabel = axisParent.Find("AxisLabel");
+            if (axisLabel != null)
+            {
+                axisLabel.localPosition = new Vector3(0, maxVisualHeight + 0.2f * scaleFactor, 0);
+                axisLabel.localScale = Vector3.one * scaleFactor /** 0.3f*/;
+            }
+
+            // Cahnge TickLabels (numbers) positions and size
+            for (int tick = 0; tick <= subdivisions; tick++)
+            {
+                string tickName = $"TickLabel_{i}_{tick}";
+                Transform tickLabel = axisParent.Find(tickName);
+                if (tickLabel == null) continue;
+
+                float t = tick / (float)subdivisions;
+                float yPos = t * maxVisualHeight;
+                Vector3 localPos = tickLabel.localPosition;
+                localPos.y = yPos;
+                localPos.x = - (axisRadius * scaleFactor) - labelOffset * scaleFactor; 
+                tickLabel.localPosition = localPos;
+
+                // Make the label change its size along with the axis
+                tickLabel.localScale = Vector3.one * scaleFactor /** 0.25f*/;
+
+                // Change the ticklabel value if necessary (helps precission if the height changes too much)
+                TextMeshPro tmp = tickLabel.GetComponent<TextMeshPro>();
+                if (tmp != null)
+                {
+                    
+                    float value = minValues[i] + t * (maxValues[i] - minValues[i]);
+                    tmp.text = value.ToString("0.0");
+                }
+            }
+        }
+
+        // Change lines thickness alongwith the axis height
+        UpdateLineThickness(scaleFactor);
+    }
+
+
+    private void UpdateLineThickness(float scaleFactor)
+    {
+        LineRenderer[] lines = GetComponentsInChildren<LineRenderer>(true);
+        float baseWidth = 0.02f; // With reference (baseRef) width 5
+        foreach (var line in lines)
+        {
+            line.startWidth = baseWidth * scaleFactor;
+            line.endWidth = baseWidth * scaleFactor;
+        }
+    }
+
+
 
 
 
