@@ -40,7 +40,7 @@ public class MultiAxisPlotter : MonoBehaviour
 
             Crea segmentos (LineRenderer) que conectan pares de ejes (i, j).
 
-            Inicialmente están deshabilitados (lr.enabled = false).
+            Inicialmente están deshabilitados (lr.enabled = false o lr.gameObject.SetActive(false);).
 
             Se les agrega:
 
@@ -110,6 +110,8 @@ public class MultiAxisPlotter : MonoBehaviour
         minValues = new float[numColumns];
         maxValues = new float[numColumns];
 
+        float paddingPercent = 0.07f; // 7% extra arriba y abajo
+
         for (int col = 0; col < numColumns; col++)
         {
             minValues[col] = float.MaxValue;
@@ -119,6 +121,7 @@ public class MultiAxisPlotter : MonoBehaviour
             {
                 if (string.IsNullOrWhiteSpace(lines[row])) continue;
                 string[] values = lines[row].Split(',');
+
                 if (values.Length <= col) continue;
 
                 if (float.TryParse(values[col], NumberStyles.Float, CultureInfo.InvariantCulture, out float val))
@@ -127,8 +130,16 @@ public class MultiAxisPlotter : MonoBehaviour
                     if (val > maxValues[col]) maxValues[col] = val;
                 }
             }
+
+            // ---------- APLICAR PADDING ----------
+            float range = maxValues[col] - minValues[col];
+            float padding = range * paddingPercent;
+
+            minValues[col] -= padding;
+            maxValues[col] += padding;
         }
     }
+
 
     void CreateAxes()
     {
@@ -306,6 +317,7 @@ public class MultiAxisPlotter : MonoBehaviour
                         }
                     };
                     lr.enabled = false;
+                    //lr.gameObject.SetActive(false);
 
                     var lineSel = segGO.AddComponent<LineSelectable>();
                     lineSel.rowIndex = row - 1; // Guarda el índice de la fila a la que pertenece
@@ -346,6 +358,7 @@ public class MultiAxisPlotter : MonoBehaviour
                     lr.SetPosition(0, p1);
                     lr.SetPosition(1, p2);
                     lr.enabled = true;
+                    //lr.gameObject.SetActive(true);
 
                     // ✅ actualizamos collider de la línea
                     UpdateLineCollider(go, p1, p2, 0.05f);
@@ -353,6 +366,7 @@ public class MultiAxisPlotter : MonoBehaviour
                 else
                 {
                     lr.enabled = false;
+                    //lr.gameObject.SetActive(false);
                     var col = go.GetComponent<CapsuleCollider>();
                     if (col) col.enabled = false;
                 }
@@ -393,7 +407,7 @@ public class MultiAxisPlotter : MonoBehaviour
         foreach (var kvp in connDict)
         {
             LineRenderer lr = kvp.Value;
-            if (lr != null)
+            if (lr != null && lr.enabled)
             {
                 lr.startColor = color;
                 lr.endColor = color;
@@ -460,6 +474,10 @@ public class MultiAxisPlotter : MonoBehaviour
             axis.localScale = new Vector3(axisRadius * scaleFactor, maxVisualHeight / 2f, axisRadius * scaleFactor);
             axis.localPosition = new Vector3(0, maxVisualHeight / 2f, 0);
 
+            // Actualizar collider del cilindro
+            UpdateAxisCollider(axis, maxVisualHeight);
+
+
             Transform axisParent = axisParents[i];
 
             // Change the axis name if it exists
@@ -514,6 +532,23 @@ public class MultiAxisPlotter : MonoBehaviour
         }
     }
 
+    private void UpdateAxisCollider(Transform axis, float axisHeight)
+    {
+        CapsuleCollider col = axis.GetComponent<CapsuleCollider>();
+        if (col == null) col = axis.gameObject.AddComponent<CapsuleCollider>();
+
+        // El cilindro en Unity tiene altura = scale.y * 2
+        float visualScaleY = axisHeight / 2f;
+        axis.localScale = new Vector3(axis.localScale.x, visualScaleY, axis.localScale.z);
+
+        // Configuración del collider
+        col.direction = 1; // Y
+
+        col.height = axisHeight;               // misma altura del cilindro
+        col.radius = axis.localScale.x * 1.1f; // un poquito más grande para VR
+
+        col.center = new Vector3(0f, 0f, 0f);  // SIEMPRE 0, porque el cilindro ya está bien posicionado
+    }
 
 
 
