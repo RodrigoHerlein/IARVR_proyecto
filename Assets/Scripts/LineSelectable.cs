@@ -15,6 +15,7 @@ public class LineSelectable : MonoBehaviour
     Rigidbody rb;
     Color originalColor;
     public int rowIndex; // índice de fila (seteado por MultiAxisPlotter)
+    private MultiAxisPlotter _plotter;
 
     void Awake()
     {
@@ -64,9 +65,11 @@ public class LineSelectable : MonoBehaviour
 
         grabInteractable.selectEntered.AddListener(OnSelectEnteredEvent);
         grabInteractable.selectExited.AddListener(OnSelectExitedEvent);
+    }
 
-        // Opcional: si querés bloquear el movimiento al agarrar, dejá isKinematic true
-        // y manejá visuales en los callbacks.
+    public void SetPlotter(MultiAxisPlotter plotter)
+    {
+        _plotter = plotter;
     }
 
     void OnDestroy()
@@ -108,18 +111,14 @@ public class LineSelectable : MonoBehaviour
     {
         SetLineColor(Color.green);
 
-        var plotter = FindObjectOfType<MultiAxisPlotter>();
-        if (plotter != null)
-            plotter.HighlightRow(rowIndex, Color.green);
+        _plotter?.HighlightRow(rowIndex, Color.green);
     }
 
     private void OnSelectExitedEvent(SelectExitEventArgs args)
     {
         SetLineColor(originalColor);
 
-        var plotter = FindObjectOfType<MultiAxisPlotter>();
-        if (plotter != null)
-            plotter.HighlightRow(rowIndex, originalColor);
+        _plotter?.HighlightRow(rowIndex, originalColor);
     }
 /*
     private void OnSelectEnteredEvent(SelectEnterEventArgs args)
