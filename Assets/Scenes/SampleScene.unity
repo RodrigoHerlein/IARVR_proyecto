@@ -2002,10 +2002,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 165bfdb713a69a84882b3a1c8002b28b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  plotter: {fileID: 1479309600}
-  heightSlider: {fileID: 307793819}
-  minHeight: 1
-  maxHeight: 10
+  _plotter: {fileID: 0}
+  _heightSlider: {fileID: 307793819}
+  _minHeight: 1
+  _maxHeight: 10
 --- !u!1001 &309903339
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -7711,16 +7711,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bb68940a6dc2ecd449efe9a910a4d1f6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  csvFile: {fileID: 4900000, guid: e91164241b913944a83c11e6bdb8e3e1, type: 3}
-  subdivisions: 5
-  axisRadius: 0.05
-  tickSize: 0.1
-  labelOffset: 0.25
+  _csvFile: {fileID: 4900000, guid: e91164241b913944a83c11e6bdb8e3e1, type: 3}
+  _subdivisions: 5
+  _tickPrefab: {fileID: 0}
+  _labelPrefab: {fileID: 0}
   maxVisualHeight: 5
-  tickPrefab: {fileID: 0}
-  labelPrefab: {fileID: 0}
-  axisSpacing: 1.9
-  connectionThreshold: 2
 --- !u!4 &1487255188 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 3042016231070954709, guid: a55c555f579cc3647bf8aaf8116217a9, type: 3}

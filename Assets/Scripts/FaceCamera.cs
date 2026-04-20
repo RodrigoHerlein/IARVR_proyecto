@@ -1,10 +1,19 @@
 using UnityEngine;
 
-public class FaceCamera : MonoBehaviour
+namespace IARVR.Visualization
 {
-    void LateUpdate()
+    /// <summary>
+    /// Rotates this GameObject to always face the main camera.
+    /// Used by axis labels to remain readable from any angle.
+    /// </summary>
+    public class FaceCamera : MonoBehaviour
     {
-        if (Camera.main != null)
-            transform.rotation = Quaternion.LookRotation(transform.position - Camera.main.transform.position);
+        private void LateUpdate()
+        {
+            if (Camera.main == null) return;
+
+            transform.rotation = Quaternion.LookRotation(
+                transform.position - Camera.main.transform.position);
+        }
     }
 }

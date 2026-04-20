@@ -1,38 +1,55 @@
 using UnityEngine;
 using UnityEngine.UI;
 
-public class AxisHeightController : MonoBehaviour
+namespace IARVR.Visualization
 {
-    [SerializeField] private MultiAxisPlotter plotter;
-    [SerializeField] private Slider heightSlider;
-    [SerializeField] private float minHeight = 1f;
-    [SerializeField] private float maxHeight = 10f;
-
-    void Start()
+    /// <summary>
+    /// Binds a UI Slider to <see cref="MultiAxisPlotter.maxVisualHeight"/>.
+    /// Triggers a full axis + connection refresh whenever the slider value changes.
+    /// </summary>
+    public class AxisHeightController : MonoBehaviour
     {
-        if (plotter == null)
-            plotter = FindObjectOfType<MultiAxisPlotter>();
+        // --- Serialized fields ----------------------------------------------
 
-        if (heightSlider != null)
+        [SerializeField] private MultiAxisPlotter _plotter;
+        [SerializeField] private Slider           _heightSlider;
+        [SerializeField] private float            _minHeight = 1f;
+        [SerializeField] private float            _maxHeight = 10f;
+
+        // --- Unity lifecycle ------------------------------------------------
+
+        private void Start()
         {
-            // Inicializamos el slider con el valor actual
-            heightSlider.minValue = minHeight;
-            heightSlider.maxValue = maxHeight;
-            heightSlider.value = plotter.maxVisualHeight;
+            if (_plotter == null)
+                _plotter = FindObjectOfType<MultiAxisPlotter>();
 
-            // Escuchar cambios en el slider
-            heightSlider.onValueChanged.AddListener(OnSliderChanged);
+            if (_heightSlider == null)
+            {
+                Debug.LogWarning("[AxisHeightController] No Slider assigned.");
+                return;
+            }
+
+            InitializeSlider();
         }
-    }
 
-    private void OnSliderChanged(float newHeight)
-    {
-        if (plotter == null) return;
+        // --- Private helpers ------------------------------------------------
 
-        plotter.maxVisualHeight = newHeight;
+        private void InitializeSlider()
+        {
+            _heightSlider.minValue = _minHeight;
+            _heightSlider.maxValue = _maxHeight;
+            _heightSlider.value    = _plotter.maxVisualHeight;
 
-        // Actualizamos visualmente los ejes
-        plotter.UpdateAxesHeight();
-        plotter.MarkConnectionsDirty();
+            _heightSlider.onValueChanged.AddListener(OnSliderChanged);
+        }
+
+        private void OnSliderChanged(float newHeight)
+        {
+            if (_plotter == null) return;
+
+            _plotter.maxVisualHeight = newHeight;
+            _plotter.UpdateAxesHeight();
+            _plotter.MarkConnectionsDirty();
+        }
     }
 }

@@ -2,92 +2,118 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit;
 
-public class AxisSelectable : MonoBehaviour
+namespace IARVR.Visualization
 {
-    private MeshRenderer meshRenderer;
-    private Color originalColor;
-    private XRGrabInteractable grab;
-    private Rigidbody rb;
-    private MultiAxisPlotter plotter;
-
-    void Awake()
+    /// <summary>
+    /// Attached to each axis parent. Allows the user to grab and reposition
+    /// an axis in VR. Notifies <see cref="MultiAxisPlotter"/> to refresh
+    /// connections while the axis is held.
+    /// </summary>
+    [RequireComponent(typeof(Rigidbody))]
+    public class AxisSelectable : MonoBehaviour
     {
-        // Busca el cilindro o cualquier MeshRenderer en los hijos
-        meshRenderer = GetComponentInChildren<MeshRenderer>();
-        if (meshRenderer)
-            originalColor = meshRenderer.material.color;
-        else
-            Debug.LogWarning($"[AxisSelectable] No encontró MeshRenderer en {name}");
+        // --- Serialized fields ----------------------------------------------
 
-        // Asegura que haya Rigidbody
-        rb = GetComponent<Rigidbody>();
-        if (!rb)
+        [Tooltip("Fallback collider half-height when no Collider is found on the axis.")]
+        [SerializeField] private float defaultColliderHalfHeight = 2.5f;
+
+        [Tooltip("Fallback collider radius when no Collider is found on the axis.")]
+        [SerializeField] private float defaultColliderRadius = 0.2f;
+
+        // --- Private state --------------------------------------------------
+
+        private MeshRenderer      _meshRenderer;
+        private Color             _originalColor;
+        private XRGrabInteractable _grab;
+        private MultiAxisPlotter  _plotter;
+
+        // --- Unity lifecycle ------------------------------------------------
+
+        private void Awake()
         {
-            rb = gameObject.AddComponent<Rigidbody>();
+            CacheComponents();
+            EnsureRigidbody();
+            EnsureCollider();
+            ConfigureGrab();
+
+            _plotter = FindObjectOfType<MultiAxisPlotter>();
+        }
+
+        private void OnDestroy()
+        {
+            if (_grab == null) return;
+
+            _grab.selectEntered.RemoveListener(OnGrab);
+            _grab.selectExited.RemoveListener(OnRelease);
+        }
+
+        // --- Grab callbacks -------------------------------------------------
+
+        private void OnGrab(SelectEnterEventArgs args)
+        {
+            if (_meshRenderer != null)
+                _meshRenderer.material.color = Color.green;
+
+            StartCoroutine(MarkDirtyWhileGrabbed());
+        }
+
+        private void OnRelease(SelectExitEventArgs args)
+        {
+            if (_meshRenderer != null)
+                _meshRenderer.material.color = _originalColor;
+
+            _plotter?.MarkConnectionsDirty();
+        }
+
+        // --- Private helpers ------------------------------------------------
+
+        private void CacheComponents()
+        {
+            _meshRenderer = GetComponentInChildren<MeshRenderer>();
+
+            if (_meshRenderer != null)
+                _originalColor = _meshRenderer.material.color;
+            else
+                Debug.LogWarning($"[AxisSelectable] No MeshRenderer found on '{name}'.");
+        }
+
+        private void EnsureRigidbody()
+        {
+            var rb = GetComponent<Rigidbody>();
             rb.isKinematic = true;
-            rb.useGravity = false;
+            rb.useGravity  = false;
         }
 
-        // Asegura collider (usa el del cilindro si existe, o crea uno simple)
-        Collider col = GetComponent<Collider>();
-        if (!col)
+        private void EnsureCollider()
         {
-            CapsuleCollider capsule = gameObject.AddComponent<CapsuleCollider>();
-            capsule.center = new Vector3(0, 2.5f, 0);
-            capsule.height = 5f;
-            capsule.radius = 0.2f;
+            if (GetComponent<Collider>() != null) return;
+
+            var capsule        = gameObject.AddComponent<CapsuleCollider>();
+            capsule.center     = new Vector3(0f, defaultColliderHalfHeight, 0f);
+            capsule.height     = defaultColliderHalfHeight * 2f;
+            capsule.radius     = defaultColliderRadius;
         }
 
-        // Configura el grab interactable
-        grab = GetComponent<XRGrabInteractable>();
-        if (!grab)
-            grab = gameObject.AddComponent<XRGrabInteractable>();
-
-        grab.movementType = XRBaseInteractable.MovementType.Kinematic;
-        grab.trackRotation = false;
-        grab.throwOnDetach = false;
-
-        grab.selectEntered.AddListener(OnGrab);
-        grab.selectExited.AddListener(OnRelease);
-
-        plotter = FindObjectOfType<MultiAxisPlotter>(); // solo una vez en Awake
-        grab.selectExited.AddListener(OnRelease);
-    }
-
-    private void OnDestroy()
-    {
-        if (grab)
+        private void ConfigureGrab()
         {
-            grab.selectEntered.RemoveListener(OnGrab);
-            grab.selectExited.RemoveListener(OnRelease);
+            _grab = GetComponent<XRGrabInteractable>()
+                    ?? gameObject.AddComponent<XRGrabInteractable>();
+
+            _grab.movementType = XRBaseInteractable.MovementType.Kinematic;
+            _grab.trackRotation = false;
+            _grab.throwOnDetach  = false;
+
+            _grab.selectEntered.AddListener(OnGrab);
+            _grab.selectExited.AddListener(OnRelease);
         }
-    }
 
-    private void OnGrab(SelectEnterEventArgs args)
-    {
-        if (meshRenderer)
-            meshRenderer.material.color = Color.green;
-
-        // Marcar dirty cada frame mientras está agarrado
-        StartCoroutine(MarkDirtyWhileGrabbed());
-    }
-
-    private IEnumerator MarkDirtyWhileGrabbed()
-    {
-        while (grab.isSelected)
+        private IEnumerator MarkDirtyWhileGrabbed()
         {
-            plotter?.MarkConnectionsDirty();
-            yield return null; // esperar un frame
+            while (_grab.isSelected)
+            {
+                _plotter?.MarkConnectionsDirty();
+                yield return null;
+            }
         }
-    }
-
-    private void OnRelease(SelectExitEventArgs args)
-    {
-        if (meshRenderer)
-            meshRenderer.material.color = originalColor;
-
-        // Avisarle al plotter que recalcule
-        if (plotter != null)
-            plotter.MarkConnectionsDirty();
     }
 }

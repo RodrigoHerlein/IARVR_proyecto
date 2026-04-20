@@ -1,473 +1,500 @@
-using UnityEngine;
 using System.Collections.Generic;
+using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit;
 using TMPro;
 
-public class MultiAxisPlotter : MonoBehaviour
+namespace IARVR.Visualization
 {
-    /*
-        Responsabilidad general:
-        Genera un gráfico de ejes paralelos a partir de un CSV.
-        Cada columna del CSV = un eje vertical.
-        Cada fila del CSV = una polilínea que conecta valores entre ejes.
-
-        a) CalculateMinMax()
-
-            Lee el CSV.
-
-            Calcula mínimos y máximos de cada columna para normalizar valores.
-
-            Esto permite mapear valores numéricos a alturas en los ejes.
-
-        b) CreateAxes()
-
-            Crea un cilindro vertical para cada columna del CSV.
-
-            Le agrega:
-
-            Ticks (marcas de subdivisiones).
-
-            Labels (nombres de ejes y valores numéricos).
-
-            El script SelectableObject → para que cada eje se pueda resaltar al apuntarlo.
-
-        c) CreateAllConnections()
-
-            Para cada fila de datos:
-
-            Guarda los valores en lineData.
-
-            Crea segmentos (LineRenderer) que conectan pares de ejes (i, j).
-
-            Inicialmente están deshabilitados (lr.enabled = false o lr.gameObject.SetActive(false);).
-
-            Se les agrega:
-
-            SelectableObject (para resaltar).
-
-            LineSelectable (para permitir selección con láser en VR).
-
-        d) Update() / UpdateConnections()
-
-            En cada frame:
-
-            Calcula las posiciones entre ejes según los datos.
-
-            Si dos ejes están a menos de connectionThreshold, activa la línea y la actualiza.
-
-            Actualiza también el collider de la línea para que siga bien los puntos.
-
-        e) GetWorldPoint()
-
-            Convierte un valor normalizado (0–1 entre min y max) a una posición en el espacio del gráfico.
-    */
-
-    [Header("CSV Settings")]
-    public TextAsset csvFile;
-    public int subdivisions = 5;
-    public float axisRadius = 0.05f;
-    public float tickSize = 0.1f;
-    public float labelOffset = 0.25f;
-    public float maxVisualHeight = 5f;
-    public GameObject tickPrefab;
-    public GameObject labelPrefab;
-    public float axisSpacing = 2f;
-
-    [Header("Dynamic Connections")]
-    public float connectionThreshold = 1.5f;
-
-    private CsvDataModel _data;
-
-    private Transform[] axisCylinders;
-    private Transform[] axisParents;
-
-    private List<Dictionary<(int, int), LineRenderer>> rowConnections = new List<Dictionary<(int, int), LineRenderer>>();
-    private List<float[]> lineData = new List<float[]>();
-
-    private bool _connectionsDirty = true;
-
-    void Start()
+    /// <summary>
+    /// Generates an interactive parallel-coordinates chart from a CSV file.
+    ///
+    /// Responsibilities:
+    ///   - Parse CSV data via <see cref="CsvDataModel"/>.
+    ///   - Build one vertical cylinder per column (axis) with tick labels.
+    ///   - Render polyline segments connecting axis values for each data row.
+    ///   - Show/hide segments dynamically based on axis proximity.
+    ///   - Expose highlight and brushing API consumed by child components.
+    /// </summary>
+    public class MultiAxisPlotter : MonoBehaviour
     {
-        if (csvFile == null)
+        // --- Serialized fields ----------------------------------------------
+
+        [Header("Data Source")]
+        [Tooltip("CSV file where the first row is headers and each subsequent row is a data record.")]
+        [SerializeField] private TextAsset _csvFile;
+
+        [Header("Axis Appearance")]
+        [Tooltip("Number of tick subdivisions per axis.")]
+        [SerializeField] private int   _subdivisions  = 5;
+        private float _axisRadius    = 0.05f;
+        private float _tickSize      = 0.1f;
+        private float _labelOffset   = 0.25f;
+        private float _axisSpacing   = 1f;
+        [SerializeField] private GameObject _tickPrefab;
+        [SerializeField] private GameObject _labelPrefab;
+
+        [Header("Connections")]
+        [Tooltip("Maximum world-space distance between two axes for their connecting lines to be visible.")]
+        private float _connectionThreshold = 2.5f;
+
+        // --- Public properties ----------------------------------------------
+
+        /// <summary>Current visual height of all axes in world units.</summary>
+        public float maxVisualHeight = 5f;
+
+        // Legacy public accessors kept for Inspector-assigned components
+        public int   subdivisions         => _subdivisions;
+        public float axisRadius           => _axisRadius;
+        public float tickSize             => _tickSize;
+        public float labelOffset          => _labelOffset;
+        public float axisSpacing          => _axisSpacing;
+        public float connectionThreshold  => _connectionThreshold;
+        public GameObject tickPrefab      => _tickPrefab;
+        public GameObject labelPrefab     => _labelPrefab;
+
+        // --- Constants ------------------------------------------------------
+
+        private const float BaseReferenceHeight  = 5f;
+        private const float AxisColorR           = 0.2f;
+        private const float AxisColorG           = 0.5f;
+        private const float AxisColorB           = 1.0f;
+        private const float AxisColorA           = 0.8f;
+        private const float LabelAlpha           = 0.8f;
+        private const float AxisLabelFontSize    = 2f;
+        private const float TickLabelFontSize    = 1.5f;
+        private const float LineDefaultWidth     = 0.03f;
+        private const float LineBaseWidth        = 0.02f;
+        private const float LineAlpha            = 0.6f;
+        private const float LineColliderThickness = 0.05f;
+        private const float ColliderHeightMargin = 1.1f;
+
+        // --- Private state --------------------------------------------------
+
+        private CsvDataModel _data;
+        private Transform[]  _axisCylinders;
+        private Transform[]  _axisParents;
+
+        private List<Dictionary<(int col1, int col2), LineRenderer>> _rowConnections
+            = new List<Dictionary<(int, int), LineRenderer>>();
+
+        private List<float[]> _lineData    = new List<float[]>();
+        private bool          _dirty;
+
+        // --- Unity lifecycle ------------------------------------------------
+
+        private void Start()
         {
-            Debug.LogError("No CSV assigned!");
-            return;
-        }
-
-        _data = new CsvDataModel(csvFile);  // una sola lectura
-        CreateAxes();
-        CreateAllConnections();
-    }
-
-    
-
-
-    void CreateAxes()
-    {
-        
-        axisCylinders = new Transform[_data.NumColumns];
-        axisParents = new Transform[_data.NumColumns];
-
-        for (int col = 0; col < _data.NumColumns; col++)
-        {
-            GameObject axisGO = new GameObject("Axis_" + _data.Headers[col]); 
-            axisGO.transform.SetParent(transform);
-
-            axisGO.transform.localPosition = new Vector3(col * axisSpacing, 0, 0);
-
-            axisGO.AddComponent<AxisSelectable>();
-            axisParents[col] = axisGO.transform;
-
-            float axisHeight = maxVisualHeight;
-            GameObject axis = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            axis.transform.SetParent(axisGO.transform);
-            axis.transform.localScale = new Vector3(axisRadius, axisHeight / 2f, axisRadius);
-            axis.transform.localPosition = new Vector3(0, axisHeight / 2f, 0);
-
-            var axisCollider = axis.GetComponent<CapsuleCollider>();
-            if (axisCollider != null)
+            if (_csvFile == null)
             {
-                axisCollider.height = axisHeight * 1.1f;
-                axisCollider.center = new Vector3(0, (axisHeight / 2f) - (axisHeight * 0.5f), 0);
+                Debug.LogError("[MultiAxisPlotter] No CSV file assigned.");
+                return;
             }
 
-            Renderer rend = axis.GetComponent<Renderer>();
-            rend.material = new Material(Shader.Find("Sprites/Default"));
-            rend.material.color = new Color(0.2f, 0.5f, 1f, 0.8f);
+            _data = new CsvDataModel(_csvFile);
+            CreateAxes();
+            CreateAllConnections();
+            _dirty = true;
+        }
 
-            axisCylinders[col] = axis.transform;
+        private void Update()
+        {
+            if (!_dirty) return;
 
-            GameObject axisLabel = new GameObject("AxisLabel");
-            axisLabel.transform.SetParent(axisGO.transform);
-            axisLabel.transform.localPosition = new Vector3(0, axisHeight + 0.2f, 0);
-            TextMeshPro tmp = axisLabel.AddComponent<TextMeshPro>();
-            axisLabel.AddComponent<FaceCamera>();
-            tmp.text = _data.Headers[col]; // ✅ _data.Headers
-            tmp.fontSize = 2;
-            tmp.color = Color.white;
-            tmp.alignment = TextAlignmentOptions.Center;
+            UpdateConnections();
+            _dirty = false;
+        }
 
-            var brusher = axis.AddComponent<AxisBrusher>();
-            brusher.axisIndex = col;
+        // --- Public API -----------------------------------------------------
 
-            for (int i = 0; i <= subdivisions; i++)
+        /// <summary>Schedules a connection position refresh on the next frame.</summary>
+        public void MarkConnectionsDirty()
+        {
+            Debug.Log("[Plotter] MarkConnectionsDirty called", this);
+            _dirty = true;
+        }
+
+        /// <summary>Returns the parent transform of the axis at <paramref name="index"/>.</summary>
+        public Transform GetAxisParent(int index)
+        {
+            if (_axisParents == null || index < 0 || index >= _axisParents.Length)
+                return null;
+
+            return _axisParents[index];
+        }
+
+        /// <summary>Converts a world point on an axis into its corresponding data value.</summary>
+        public float ValueFromWorldPoint(int col, Vector3 worldPoint)
+        {
+            Transform parent = GetAxisParent(col);
+            if (parent == null) return 0f;
+
+            Vector3 local = parent.InverseTransformPoint(worldPoint);
+            float t = Mathf.Clamp01(local.y / maxVisualHeight);
+            return Mathf.Lerp(_data.MinValues[col], _data.MaxValues[col], t);
+        }
+
+        /// <summary>Converts a local Y height on an axis into its corresponding data value.</summary>
+        public float ValueFromHeight(int col, float localY)
+        {
+            float t = Mathf.Clamp01(localY / maxVisualHeight);
+            return Mathf.Lerp(_data.MinValues[col], _data.MaxValues[col], t);
+        }
+
+        /// <summary>
+        /// Highlights all segments of the given row with <paramref name="color"/>.
+        /// Only affects currently visible (enabled) segments.
+        /// </summary>
+        public void HighlightRow(int rowIndex, Color color)
+        {
+            if (rowIndex < 0 || rowIndex >= _rowConnections.Count) return;
+
+            foreach (var kvp in _rowConnections[rowIndex])
             {
-                float t = i / (float)subdivisions;
-                float yPos = t * axisHeight;
-                float value = _data.MinValues[col] + t * (_data.MaxValues[col] - _data.MinValues[col]); // ✅ _data
-
-                if (tickPrefab != null)
-                {
-                    GameObject tick = Instantiate(tickPrefab, axisGO.transform);
-                    tick.transform.localPosition = new Vector3(axisRadius + 0.05f, yPos, 0);
-                    tick.transform.localScale = new Vector3(tickSize, tickSize, tickSize);
-                    tick.name = $"Tick_{col}_{i}";
-                }
-
-                GameObject lbl;
-                if (labelPrefab != null)
-                    lbl = Instantiate(labelPrefab, axisGO.transform);
-                else
-                {
-                    lbl = new GameObject($"TickLabel_{col}_{i}");
-                    lbl.transform.SetParent(axisGO.transform);
-                }
-
-                lbl.name = $"TickLabel_{col}_{i}";
-                lbl.transform.localPosition = new Vector3(-axisRadius - labelOffset, yPos, 0);
-                lbl.transform.localRotation = Quaternion.identity;
-
-                TextMeshPro textMesh = lbl.GetComponent<TextMeshPro>();
-                if (textMesh == null)
-                    textMesh = lbl.AddComponent<TextMeshPro>();
-
-                textMesh.text = value.ToString("0.0");
-                textMesh.fontSize = 1.5f;
-                textMesh.color = new Color(1f, 1f, 1f, 0.8f);
-                textMesh.alignment = TextAlignmentOptions.Center;
-                lbl.AddComponent<FaceCamera>();
+                LineRenderer lr = kvp.Value;
+                if (lr != null && lr.enabled)
+                    lr.startColor = lr.endColor = color;
             }
         }
-    }
 
-    void CreateAllConnections()
-    {
-        for (int row = 0; row < _data.Rows.Count; row++)
+        /// <summary>
+        /// Highlights rows whose value on <paramref name="axisIndex"/> falls within
+        /// [<paramref name="minVal"/>, <paramref name="maxVal"/>] using <paramref name="color"/>.
+        /// All other rows revert to their default color.
+        /// </summary>
+        public void HighlightRange(int axisIndex, float minVal, float maxVal, Color color)
         {
-            lineData.Add(_data.Rows[row]); 
+            for (int r = 0; r < _lineData.Count; r++)
+            {
+                float val    = _lineData[r][axisIndex];
+                bool inRange = val >= minVal && val <= maxVal;
+                Color target = inRange ? color : Color.red;
 
-            var connDict = new Dictionary<(int, int), LineRenderer>();
+                foreach (var kvp in _rowConnections[r])
+                {
+                    LineRenderer lr = kvp.Value;
+                    if (lr != null)
+                        lr.startColor = lr.endColor = target;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Updates axis cylinder scale, label positions, and line thickness
+        /// to match the current <see cref="maxVisualHeight"/>.
+        /// </summary>
+        public void UpdateAxesHeight()
+        {
+            if (_axisCylinders == null) return;
+
+            float scaleFactor = Mathf.Max(0.0001f, maxVisualHeight / BaseReferenceHeight);
+
+            for (int i = 0; i < _axisCylinders.Length; i++)
+            {
+                if (_axisCylinders[i] == null) continue;
+
+                ResizeAxisCylinder(i, scaleFactor);
+                RepositionAxisLabel(i, scaleFactor);
+                RepositionTickLabels(i, scaleFactor);
+            }
+
+            UpdateLineThickness(scaleFactor);
+        }
+
+        // --- Initialization -------------------------------------------------
+
+        private void CreateAxes()
+        {
+            _axisCylinders = new Transform[_data.NumColumns];
+            _axisParents   = new Transform[_data.NumColumns];
+
+            for (int col = 0; col < _data.NumColumns; col++)
+            {
+                GameObject axisRoot = CreateAxisRoot(col);
+                _axisParents[col]   = axisRoot.transform;
+                _axisCylinders[col] = CreateAxisCylinder(axisRoot, col);
+
+                CreateAxisLabel(axisRoot, _data.Headers[col]);
+                CreateTickLabels(axisRoot, col);
+
+                // Attach brusher to the cylinder itself so raycasts target it
+                var brusher = _axisCylinders[col].gameObject.AddComponent<AxisBrusher>();
+                brusher.AxisIndex = col;
+            }
+        }
+
+        private GameObject CreateAxisRoot(int col)
+        {
+            var axisRoot = new GameObject($"Axis_{_data.Headers[col]}");
+            axisRoot.transform.SetParent(transform);
+            axisRoot.transform.localPosition = new Vector3(col * _axisSpacing, 0f, 0f);
+            axisRoot.AddComponent<AxisSelectable>();
+            return axisRoot;
+        }
+
+        private Transform CreateAxisCylinder(GameObject parent, int col)
+        {
+            float h    = maxVisualHeight;
+            var   axis = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            axis.transform.SetParent(parent.transform);
+            axis.transform.localScale    = new Vector3(_axisRadius, h / 2f, _axisRadius);
+            axis.transform.localPosition = new Vector3(0f, h / 2f, 0f);
+
+            // Slightly enlarge the collider so rays can hit the very edges
+            if (axis.TryGetComponent<CapsuleCollider>(out var col2))
+            {
+                col2.height = h * ColliderHeightMargin;
+                col2.center = new Vector3(0f, (h / 2f) - (h * 0.5f), 0f);
+            }
+
+            var rend = axis.GetComponent<Renderer>();
+            rend.material       = new Material(Shader.Find("Sprites/Default"));
+            rend.material.color = new Color(AxisColorR, AxisColorG, AxisColorB, AxisColorA);
+
+            return axis.transform;
+        }
+
+        private void CreateAxisLabel(GameObject parent, string header)
+        {
+            var label = new GameObject("AxisLabel");
+            label.transform.SetParent(parent.transform);
+            label.transform.localPosition = new Vector3(0f, maxVisualHeight + 0.2f, 0f);
+
+            var tmp        = label.AddComponent<TextMeshPro>();
+            tmp.text       = header;
+            tmp.fontSize   = AxisLabelFontSize;
+            tmp.color      = Color.white;
+            tmp.alignment  = TextAlignmentOptions.Center;
+
+            label.AddComponent<FaceCamera>();
+        }
+
+        private void CreateTickLabels(GameObject parent, int col)
+        {
+            for (int i = 0; i <= _subdivisions; i++)
+            {
+                float t     = i / (float)_subdivisions;
+                float yPos  = t * maxVisualHeight;
+                float value = Mathf.Lerp(_data.MinValues[col], _data.MaxValues[col], t);
+
+                CreateTick(parent, col, i, yPos);
+                CreateTickLabel(parent, col, i, yPos, value);
+            }
+        }
+
+        private void CreateTick(GameObject parent, int col, int index, float yPos)
+        {
+            if (_tickPrefab == null) return;
+
+            var tick = Instantiate(_tickPrefab, parent.transform);
+            tick.transform.localPosition = new Vector3(_axisRadius + 0.05f, yPos, 0f);
+            tick.transform.localScale    = Vector3.one * _tickSize;
+            tick.name = $"Tick_{col}_{index}";
+        }
+
+        private void CreateTickLabel(GameObject parent, int col, int index, float yPos, float value)
+        {
+            GameObject lbl = _labelPrefab != null
+                ? Instantiate(_labelPrefab, parent.transform)
+                : new GameObject();
+
+            lbl.name = $"TickLabel_{col}_{index}";
+            lbl.transform.SetParent(parent.transform);
+            lbl.transform.localPosition = new Vector3(-_axisRadius - _labelOffset, yPos, 0f);
+            lbl.transform.localRotation = Quaternion.identity;
+
+            var textMesh       = lbl.GetComponent<TextMeshPro>() ?? lbl.AddComponent<TextMeshPro>();
+            textMesh.text      = value.ToString("0.0");
+            textMesh.fontSize  = TickLabelFontSize;
+            textMesh.color     = new Color(1f, 1f, 1f, LabelAlpha);
+            textMesh.alignment = TextAlignmentOptions.Center;
+
+            lbl.AddComponent<FaceCamera>();
+        }
+
+        private void CreateAllConnections()
+        {
+            for (int row = 0; row < _data.Rows.Count; row++)
+            {
+                _lineData.Add(_data.Rows[row]);
+                _rowConnections.Add(CreateConnectionsForRow(row));
+            }
+        }
+
+        private Dictionary<(int, int), LineRenderer> CreateConnectionsForRow(int row)
+        {
+            var dict = new Dictionary<(int, int), LineRenderer>();
 
             for (int i = 0; i < _data.NumColumns; i++)
             {
                 for (int j = i + 1; j < _data.NumColumns; j++)
                 {
-                    GameObject segGO = new GameObject($"Row{row}_Seg{i}_{j}");
-                    segGO.transform.SetParent(transform);
-                    LineRenderer lr = segGO.AddComponent<LineRenderer>();
-                    lr.positionCount = 2;
-                    lr.startWidth = 0.03f;
-                    lr.endWidth = 0.03f;
-                    lr.material = new Material(Shader.Find("Sprites/Default"));
+                    var lr = CreateSegment(row, i, j);
+                    dict[(i, j)] = lr;
+                }
+            }
 
-                    lr.colorGradient = new Gradient()
+            return dict;
+        }
+
+        private LineRenderer CreateSegment(int row, int colA, int colB)
+        {
+            var segGO = new GameObject($"Row{row}_Seg{colA}_{colB}");
+            segGO.transform.SetParent(transform);
+
+            var lr             = segGO.AddComponent<LineRenderer>();
+            lr.positionCount   = 2;
+            lr.startWidth      = lr.endWidth = LineDefaultWidth;
+            lr.material        = new Material(Shader.Find("Sprites/Default"));
+            lr.colorGradient   = BuildUniformGradient(Color.red, LineAlpha);
+            lr.enabled         = false;
+
+            var lineSel      = segGO.AddComponent<LineSelectable>();
+            lineSel.RowIndex = row;
+            lineSel.SetPlotter(this);
+
+            return lr;
+        }
+
+        // --- Per-frame update -----------------------------------------------
+
+        private void UpdateConnections()
+        {
+            for (int r = 0; r < _rowConnections.Count; r++)
+            {
+                float[] rowData = _lineData[r];
+
+                foreach (var kvp in _rowConnections[r])
+                {
+                    int          colA = kvp.Key.Item1;
+                    int          colB = kvp.Key.Item2;
+                    LineRenderer lr   = kvp.Value;
+
+                    float dist = Vector3.Distance(
+                        _axisParents[colA].position,
+                        _axisParents[colB].position);
+
+                    
+
+                    if (dist < _connectionThreshold)
                     {
-                        colorKeys = new GradientColorKey[]
-                        {
-                            new GradientColorKey(Color.red, 0f),
-                            new GradientColorKey(Color.red, 1f)
-                        },
-                        alphaKeys = new GradientAlphaKey[]
-                        {
-                            new GradientAlphaKey(0.6f, 0f),
-                            new GradientAlphaKey(0.6f, 1f)
-                        }
-                    };
-                    lr.enabled = false;
+                        Vector3 p1 = GetWorldPoint(colA, rowData[colA]);
+                        Vector3 p2 = GetWorldPoint(colB, rowData[colB]);
 
-                    var lineSel = segGO.AddComponent<LineSelectable>();
-                    lineSel.rowIndex = row;
-                    lineSel.SetPlotter(this);
+                        lr.SetPosition(0, p1);
+                        lr.SetPosition(1, p2);
+                        lr.enabled = true;
 
-                    connDict[(i, j)] = lr;
-                }
-            }
+                        UpdateLineCollider(lr.gameObject, p1, p2, LineColliderThickness);
+                    }
+                    else
+                    {
+                        lr.enabled = false;
 
-            rowConnections.Add(connDict);
-        }
-    }
-
-    void Update()
-    {
-        if (_connectionsDirty)
-        {
-            UpdateConnections();
-            _connectionsDirty = false;
-        }
-    }
-
-    // Método público para que otros scripts marquen que algo cambió
-    public void MarkConnectionsDirty()
-    {
-        _connectionsDirty = true;
-    }
-
-    void UpdateConnections()
-    {
-        for (int r = 0; r < rowConnections.Count; r++)
-        {
-            float[] rowData = lineData[r];
-            var connDict = rowConnections[r];
-
-            foreach (var kvp in connDict)
-            {
-                int i = kvp.Key.Item1;
-                int j = kvp.Key.Item2;
-                LineRenderer lr = kvp.Value;
-                GameObject go = lr.gameObject;
-
-                float dist = Vector3.Distance(axisParents[i].position, axisParents[j].position);
-
-                if (dist < connectionThreshold)
-                {
-                    Vector3 p1 = GetWorldPoint(i, rowData[i]);
-                    Vector3 p2 = GetWorldPoint(j, rowData[j]);
-                    lr.SetPosition(0, p1);
-                    lr.SetPosition(1, p2);
-                    lr.enabled = true;
-                    //lr.gameObject.SetActive(true);
-
-                    // ✅ actualizamos collider de la línea
-                    UpdateLineCollider(go, p1, p2, 0.05f);
-                }
-                else
-                {
-                    lr.enabled = false;
-                    //lr.gameObject.SetActive(false);
-                    var col = go.GetComponent<CapsuleCollider>();
-                    if (col) col.enabled = false;
+                        if (lr.TryGetComponent<CapsuleCollider>(out var col))
+                            col.enabled = false;
+                    }
                 }
             }
         }
-    }
 
-    void UpdateLineCollider(GameObject lineGO, Vector3 start, Vector3 end, float thickness)
-    {
-        CapsuleCollider collider = lineGO.GetComponent<CapsuleCollider>();
-        if (!collider) collider = lineGO.AddComponent<CapsuleCollider>();
+        // --- Height update helpers ------------------------------------------
 
-        collider.enabled = true;
-        collider.direction = 2; // Z axis
-        float length = Vector3.Distance(start, end);
-        collider.height = length;
-        collider.radius = thickness / 2f;
-
-        lineGO.transform.position = (start + end) / 2f;
-        lineGO.transform.rotation = Quaternion.FromToRotation(Vector3.forward, end - start);
-    }
-
-    Vector3 GetWorldPoint(int col, float val)
-    {
-        float t = (val - _data.MinValues[col]) / (_data.MaxValues[col] - _data.MinValues[col]);
-        float localY = t * maxVisualHeight;
-        Vector3 localPoint = new Vector3(0f, localY, 0f);
-        return axisCylinders[col].parent.TransformPoint(localPoint);
-    }
-
-
-    //Used to select a line through all the axis
-    public void HighlightRow(int rowIndex, Color color)
-    {
-        if (rowIndex < 0 || rowIndex >= rowConnections.Count) return;
-
-        var connDict = rowConnections[rowIndex];
-        foreach (var kvp in connDict)
+        private void ResizeAxisCylinder(int index, float scaleFactor)
         {
-            LineRenderer lr = kvp.Value;
-            if (lr != null && lr.enabled)
+            Transform axis = _axisCylinders[index];
+            axis.localScale    = new Vector3(
+                _axisRadius * scaleFactor,
+                maxVisualHeight / 2f,
+                _axisRadius * scaleFactor);
+            axis.localPosition = new Vector3(0f, maxVisualHeight / 2f, 0f);
+
+            if (axis.TryGetComponent<CapsuleCollider>(out var col))
             {
-                lr.startColor = color;
-                lr.endColor = color;
+                col.direction = 1;
+                col.height    = maxVisualHeight;
+                col.radius    = axis.localScale.x * ColliderHeightMargin;
+                col.center    = Vector3.zero;
             }
         }
-    }
 
-    //Functions used for brushing
-    public float ValueFromHeight(int col, float localY)
-    {
-        float t = Mathf.Clamp01(localY / maxVisualHeight);
-        return Mathf.Lerp(_data.MinValues[col], _data.MaxValues[col], t);
-    }
-
-    public void HighlightRange(int axisIndex, float minVal, float maxVal, Color color)
-    {
-        for (int r = 0; r < lineData.Count; r++)
+        private void RepositionAxisLabel(int index, float scaleFactor)
         {
-            float val = lineData[r][axisIndex];
-            bool inRange = val >= minVal && val <= maxVal;
+            Transform label = _axisParents[index].Find("AxisLabel");
+            if (label == null) return;
 
-            foreach (var kvp in rowConnections[r])
-            {
-                LineRenderer lr = kvp.Value;
-                if (lr == null) continue;
-                lr.startColor = lr.endColor = inRange ? color : Color.red; // o restaurar color original
-            }
+            label.localPosition = new Vector3(0f, maxVisualHeight + 0.2f * scaleFactor, 0f);
+            label.localScale    = Vector3.one * scaleFactor;
         }
-    }
 
-    // Devuelve el transform del parent del eje (el GameObject "Axis_*")
-    public Transform GetAxisParent(int index)
-    {
-        if (axisParents == null || index < 0 || index >= axisParents.Length) return null;
-        return axisParents[index];
-    }
-
-    // Convierte un punto world sobre un eje en el valor numérico correspondiente
-    public float ValueFromWorldPoint(int col, Vector3 worldPoint)
-    {
-        Transform axisParent = GetAxisParent(col);
-        if (axisParent == null) return 0f;
-        // local.y va a estar entre 0 y maxVisualHeight si el axisParent está configurado como en CreateAxes()
-        Vector3 local = axisParent.InverseTransformPoint(worldPoint);
-        float t = Mathf.Clamp01(local.y / maxVisualHeight);
-        return Mathf.Lerp(_data.MinValues[col], _data.MaxValues[col], t);
-    }
-
-    //Modify axis height using the AxisHeightController class
-    public void UpdateAxesHeight()
-    {
-        if (axisCylinders == null) return;
-
-        // Scale factor relative to base height
-        float baseRef = 5f;
-        float scaleFactor = Mathf.Max(0.0001f, maxVisualHeight / baseRef);
-
-        for (int i = 0; i < axisCylinders.Length; i++)
+        private void RepositionTickLabels(int axisIndex, float scaleFactor)
         {
-            Transform axis = axisCylinders[i];
-            if (axis == null) continue;
-
-            // Update axis height (axis.localScale.y its half the axis height)
-            axis.localScale = new Vector3(axisRadius * scaleFactor, maxVisualHeight / 2f, axisRadius * scaleFactor);
-            axis.localPosition = new Vector3(0, maxVisualHeight / 2f, 0);
-
-            // Actualizar collider del cilindro
-            UpdateAxisCollider(axis, maxVisualHeight);
-
-
-            Transform axisParent = axisParents[i];
-
-            // Change the axis name if it exists
-            Transform axisLabel = axisParent.Find("AxisLabel");
-            if (axisLabel != null)
+            for (int tick = 0; tick <= _subdivisions; tick++)
             {
-                axisLabel.localPosition = new Vector3(0, maxVisualHeight + 0.2f * scaleFactor, 0);
-                axisLabel.localScale = Vector3.one * scaleFactor /** 0.3f*/;
-            }
-
-            // Cahnge TickLabels (numbers) positions and size
-            for (int tick = 0; tick <= subdivisions; tick++)
-            {
-                string tickName = $"TickLabel_{i}_{tick}";
-                Transform tickLabel = axisParent.Find(tickName);
+                Transform tickLabel = _axisParents[axisIndex].Find($"TickLabel_{axisIndex}_{tick}");
                 if (tickLabel == null) continue;
 
-                float t = tick / (float)subdivisions;
+                float t    = tick / (float)_subdivisions;
                 float yPos = t * maxVisualHeight;
-                Vector3 localPos = tickLabel.localPosition;
-                localPos.y = yPos;
-                localPos.x = - (axisRadius * scaleFactor) - labelOffset * scaleFactor; 
-                tickLabel.localPosition = localPos;
 
-                // Make the label change its size along with the axis
-                tickLabel.localScale = Vector3.one * scaleFactor /** 0.25f*/;
+                tickLabel.localPosition = new Vector3(
+                    -(_axisRadius * scaleFactor) - _labelOffset * scaleFactor,
+                    yPos,
+                    0f);
+                tickLabel.localScale = Vector3.one * scaleFactor;
 
-                // Change the ticklabel value if necessary (helps precission if the height changes too much)
-                TextMeshPro tmp = tickLabel.GetComponent<TextMeshPro>();
-                if (tmp != null)
+                if (tickLabel.TryGetComponent<TextMeshPro>(out var tmp))
                 {
-                    
-                    float value = _data.MinValues[i] + t * (_data.MaxValues[i] - _data.MinValues[i]);
+                    float value = Mathf.Lerp(_data.MinValues[axisIndex], _data.MaxValues[axisIndex], t);
                     tmp.text = value.ToString("0.0");
                 }
             }
         }
 
-        // Change lines thickness alongwith the axis height
-        UpdateLineThickness(scaleFactor);
-    }
-
-
-    private void UpdateLineThickness(float scaleFactor)
-    {
-        LineRenderer[] lines = GetComponentsInChildren<LineRenderer>(true);
-        float baseWidth = 0.02f; // With reference (baseRef) width 5
-        foreach (var line in lines)
+        private void UpdateLineThickness(float scaleFactor)
         {
-            line.startWidth = baseWidth * scaleFactor;
-            line.endWidth = baseWidth * scaleFactor;
+            foreach (var lr in GetComponentsInChildren<LineRenderer>(includeInactive: true))
+                lr.startWidth = lr.endWidth = LineBaseWidth * scaleFactor;
+        }
+
+        // --- Utility --------------------------------------------------------
+
+        private Vector3 GetWorldPoint(int col, float val)
+        {
+            float t      = (val - _data.MinValues[col]) / (_data.MaxValues[col] - _data.MinValues[col]);
+            float localY = t * maxVisualHeight;
+            return _axisCylinders[col].parent.TransformPoint(new Vector3(0f, localY, 0f));
+        }
+
+        private static void UpdateLineCollider(
+            GameObject lineGO, Vector3 start, Vector3 end, float thickness)
+        {
+            var col = lineGO.GetComponent<CapsuleCollider>()
+                      ?? lineGO.AddComponent<CapsuleCollider>();
+
+            col.enabled   = true;
+            col.direction = 2; // Z-axis
+            col.height    = Vector3.Distance(start, end);
+            col.radius    = thickness / 2f;
+
+            lineGO.transform.position = (start + end) * 0.5f;
+            lineGO.transform.rotation = Quaternion.FromToRotation(Vector3.forward, end - start);
+        }
+
+        private static Gradient BuildUniformGradient(Color color, float alpha)
+        {
+            return new Gradient
+            {
+                colorKeys = new[]
+                {
+                    new GradientColorKey(color, 0f),
+                    new GradientColorKey(color, 1f)
+                },
+                alphaKeys = new[]
+                {
+                    new GradientAlphaKey(alpha, 0f),
+                    new GradientAlphaKey(alpha, 1f)
+                }
+            };
         }
     }
-
-    private void UpdateAxisCollider(Transform axis, float axisHeight)
-    {
-        CapsuleCollider col = axis.GetComponent<CapsuleCollider>();
-        if (col == null) col = axis.gameObject.AddComponent<CapsuleCollider>();
-
-        // El cilindro en Unity tiene altura = scale.y * 2
-        float visualScaleY = axisHeight / 2f;
-        axis.localScale = new Vector3(axis.localScale.x, visualScaleY, axis.localScale.z);
-
-        // Configuración del collider
-        col.direction = 1; // Y
-
-        col.height = axisHeight;               // misma altura del cilindro
-        col.radius = axis.localScale.x * 1.1f; // un poquito más grande para VR
-
-        col.center = new Vector3(0f, 0f, 0f);  // SIEMPRE 0, porque el cilindro ya está bien posicionado
-    }
-
-
-
-
 }

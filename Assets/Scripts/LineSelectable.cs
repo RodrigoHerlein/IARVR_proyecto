@@ -1,140 +1,152 @@
 using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit;
 
-[RequireComponent(typeof(LineRenderer))]
-public class LineSelectable : MonoBehaviour
+namespace IARVR.Visualization
 {
-    // Config
-    [SerializeField] float colliderRadius = 0.05f;
-    [SerializeField] float grabMoveThreshold = 0.001f; // unused but handy if querés lógica adicional
-
-    // Runtime
-    LineRenderer lr;
-    CapsuleCollider capsule;
-    XRGrabInteractable grabInteractable;
-    Rigidbody rb;
-    Color originalColor;
-    public int rowIndex; // índice de fila (seteado por MultiAxisPlotter)
-    private MultiAxisPlotter _plotter;
-
-    void Awake()
+    /// <summary>
+    /// Attached to each polyline segment. Provides VR grab interaction,
+    /// highlights the full row on select, and keeps a CapsuleCollider
+    /// aligned with the LineRenderer every frame.
+    /// </summary>
+    [RequireComponent(typeof(LineRenderer))]
+    public class LineSelectable : MonoBehaviour
     {
-        // LineRenderer obligatorio
-        lr = GetComponent<LineRenderer>();
-        if (lr == null)
+        // --- Serialized fields ----------------------------------------------
+
+        [SerializeField] private float _colliderRadius = 0.05f;
+
+        // --- Public state ---------------------------------------------------
+
+        /// <summary>Index into <see cref="MultiAxisPlotter"/> row data.</summary>
+        public int RowIndex { get; set; }
+
+        // --- Private state --------------------------------------------------
+
+        private LineRenderer       _lineRenderer;
+        private CapsuleCollider    _capsule;
+        private XRGrabInteractable _grabInteractable;
+        private Color              _originalColor;
+        private MultiAxisPlotter   _plotter;
+
+        // --- Unity lifecycle ------------------------------------------------
+
+        private void Awake()
         {
-            Debug.LogError("LineSelectable requires a LineRenderer");
-            enabled = false;
-            return;
+            if (!TryGetComponent(out _lineRenderer))
+            {
+                Debug.LogError("[LineSelectable] LineRenderer component is required.");
+                enabled = false;
+                return;
+            }
+
+            CacheOriginalColor();
+            EnsureCapsuleCollider();
+            EnsureRigidbody();
+            ConfigureGrabInteractable();
         }
 
-        // Guarda color original (si no está definido, asigna uno)
-        originalColor = lr.startColor;
-        if (originalColor == default)
+        private void OnDestroy()
         {
-            originalColor = Color.red;
-            lr.startColor = lr.endColor = originalColor;
+            if (_grabInteractable == null) return;
+
+            _grabInteractable.selectEntered.RemoveListener(OnSelectEntered);
+            _grabInteractable.selectExited.RemoveListener(OnSelectExited);
         }
 
-        // Collider
-        capsule = GetComponent<CapsuleCollider>();
-        if (!capsule) capsule = gameObject.AddComponent<CapsuleCollider>();
-        capsule.direction = 2; // Z
-        capsule.radius = colliderRadius;
-        capsule.isTrigger = false; // NO trigger: importante para detección por ray/interactors
-
-        // Rigidbody requerido por XRGrabInteractable (mejor tener uno)
-        rb = GetComponent<Rigidbody>();
-        if (!rb)
+        private void LateUpdate()
         {
-            rb = gameObject.AddComponent<Rigidbody>();
-            rb.isKinematic = true; // dejamos kinematic para que no afecte física global
-            rb.useGravity = false;
+            AlignColliderWithLine();
         }
 
-        // XRGrabInteractable: lo creamos si no existe y suscribimos listeners aquí
-        grabInteractable = GetComponent<XRGrabInteractable>();
-        if (!grabInteractable)
+        // --- Public API -----------------------------------------------------
+
+        /// <summary>
+        /// Injects the plotter reference. Called by <see cref="MultiAxisPlotter"/>
+        /// at construction time to avoid per-event FindObjectOfType calls.
+        /// </summary>
+        public void SetPlotter(MultiAxisPlotter plotter) => _plotter = plotter;
+
+        // --- Grab callbacks -------------------------------------------------
+
+        private void OnSelectEntered(SelectEnterEventArgs args)
         {
-            grabInteractable = gameObject.AddComponent<XRGrabInteractable>();
+            SetLineColor(Color.green);
+            _plotter?.HighlightRow(RowIndex, Color.green);
         }
 
-        // Asegurarse de no subscribir múltiples veces (por reloads)
-        grabInteractable.selectEntered.RemoveListener(OnSelectEnteredEvent);
-        grabInteractable.selectExited.RemoveListener(OnSelectExitedEvent);
-
-        grabInteractable.selectEntered.AddListener(OnSelectEnteredEvent);
-        grabInteractable.selectExited.AddListener(OnSelectExitedEvent);
-    }
-
-    public void SetPlotter(MultiAxisPlotter plotter)
-    {
-        _plotter = plotter;
-    }
-
-    void OnDestroy()
-    {
-        // limpieza de listeners
-        if (grabInteractable != null)
+        private void OnSelectExited(SelectExitEventArgs args)
         {
-            grabInteractable.selectEntered.RemoveListener(OnSelectEnteredEvent);
-            grabInteractable.selectExited.RemoveListener(OnSelectExitedEvent);
+            SetLineColor(_originalColor);
+            _plotter?.HighlightRow(RowIndex, _originalColor);
         }
-    }
 
-    void LateUpdate()
-    {
-        // Actualiza collider para seguir la línea si tiene 2 posiciones válidas
-        UpdateColliderToMatchLine();
-    }
+        // --- Private helpers ------------------------------------------------
 
-    void UpdateColliderToMatchLine()
-    {
-        if (lr == null || lr.positionCount < 2 || capsule == null) return;
+        private void CacheOriginalColor()
+        {
+            _originalColor = _lineRenderer.startColor;
 
-        Vector3 p1 = lr.GetPosition(0);
-        Vector3 p2 = lr.GetPosition(1);
+            if (_originalColor == default)
+            {
+                _originalColor = Color.red;
+                _lineRenderer.startColor = _lineRenderer.endColor = _originalColor;
+            }
+        }
 
-        float length = Vector3.Distance(p1, p2);
-        // Ajusta altura y radio
-        capsule.height = Mathf.Max(0.01f, length);
-        capsule.radius = Mathf.Max(0.001f, lr.startWidth / 2f);
+        private void EnsureCapsuleCollider()
+        {
+            _capsule = GetComponent<CapsuleCollider>();
+            if (_capsule == null)
+                _capsule = gameObject.AddComponent<CapsuleCollider>();
 
-        // Centrar y rotar transform para que el collider quede alineado
-        transform.position = (p1 + p2) / 2f;
-        if ((p2 - p1).sqrMagnitude > 0f)
-            transform.rotation = Quaternion.FromToRotation(Vector3.forward, p2 - p1);
-    }
+            _capsule.direction = 2; // Z-axis
+            _capsule.radius    = _colliderRadius;
+            _capsule.isTrigger = false;
+        }
 
-    // --- Eventos que se suscriben al XRGrabInteractable ---
-    private void OnSelectEnteredEvent(SelectEnterEventArgs args)
-    {
-        SetLineColor(Color.green);
+        private void EnsureRigidbody()
+        {
+            if (TryGetComponent<Rigidbody>(out _)) return;
 
-        _plotter?.HighlightRow(rowIndex, Color.green);
-    }
+            var rb         = gameObject.AddComponent<Rigidbody>();
+            rb.isKinematic = true;
+            rb.useGravity  = false;
+        }
 
-    private void OnSelectExitedEvent(SelectExitEventArgs args)
-    {
-        SetLineColor(originalColor);
+        private void ConfigureGrabInteractable()
+        {
+            _grabInteractable = GetComponent<XRGrabInteractable>()
+                                ?? gameObject.AddComponent<XRGrabInteractable>();
 
-        _plotter?.HighlightRow(rowIndex, originalColor);
-    }
-/*
-    private void OnSelectEnteredEvent(SelectEnterEventArgs args)
-    {
-        SetLineColor(Color.green);
-    }
+            // Guard against duplicate subscriptions on domain reload
+            _grabInteractable.selectEntered.RemoveListener(OnSelectEntered);
+            _grabInteractable.selectExited.RemoveListener(OnSelectExited);
 
-    private void OnSelectExitedEvent(SelectExitEventArgs args)
-    {
-        SetLineColor(originalColor);
-    }*/
+            _grabInteractable.selectEntered.AddListener(OnSelectEntered);
+            _grabInteractable.selectExited.AddListener(OnSelectExited);
+        }
 
-    private void SetLineColor(Color c)
-    {
-        if (lr == null) return;
-        lr.startColor = c;
-        lr.endColor = c;
+        private void AlignColliderWithLine()
+        {
+            if (_lineRenderer == null || _lineRenderer.positionCount < 2 || _capsule == null)
+                return;
+
+            Vector3 p1 = _lineRenderer.GetPosition(0);
+            Vector3 p2 = _lineRenderer.GetPosition(1);
+
+            _capsule.height = Mathf.Max(0.01f, Vector3.Distance(p1, p2));
+            _capsule.radius = Mathf.Max(0.001f, _lineRenderer.startWidth / 2f);
+
+            transform.position = (p1 + p2) * 0.5f;
+
+            if ((p2 - p1).sqrMagnitude > 0f)
+                transform.rotation = Quaternion.FromToRotation(Vector3.forward, p2 - p1);
+        }
+
+        private void SetLineColor(Color color)
+        {
+            if (_lineRenderer == null) return;
+            _lineRenderer.startColor = _lineRenderer.endColor = color;
+        }
     }
 }
