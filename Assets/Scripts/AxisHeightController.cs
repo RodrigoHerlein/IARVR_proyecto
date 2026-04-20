@@ -33,5 +33,6 @@ public class AxisHeightController : MonoBehaviour
 
         // Actualizamos visualmente los ejes
         plotter.UpdateAxesHeight();
+        plotter.MarkConnectionsDirty();
     }
 }

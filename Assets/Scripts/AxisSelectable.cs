@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit;
 
@@ -7,6 +8,7 @@ public class AxisSelectable : MonoBehaviour
     private Color originalColor;
     private XRGrabInteractable grab;
     private Rigidbody rb;
+    private MultiAxisPlotter plotter;
 
     void Awake()
     {
@@ -47,6 +49,9 @@ public class AxisSelectable : MonoBehaviour
 
         grab.selectEntered.AddListener(OnGrab);
         grab.selectExited.AddListener(OnRelease);
+
+        plotter = FindObjectOfType<MultiAxisPlotter>(); // solo una vez en Awake
+        grab.selectExited.AddListener(OnRelease);
     }
 
     private void OnDestroy()
@@ -62,11 +67,27 @@ public class AxisSelectable : MonoBehaviour
     {
         if (meshRenderer)
             meshRenderer.material.color = Color.green;
+
+        // Marcar dirty cada frame mientras está agarrado
+        StartCoroutine(MarkDirtyWhileGrabbed());
+    }
+
+    private IEnumerator MarkDirtyWhileGrabbed()
+    {
+        while (grab.isSelected)
+        {
+            plotter?.MarkConnectionsDirty();
+            yield return null; // esperar un frame
+        }
     }
 
     private void OnRelease(SelectExitEventArgs args)
     {
         if (meshRenderer)
             meshRenderer.material.color = originalColor;
+
+        // Avisarle al plotter que recalcule
+        if (plotter != null)
+            plotter.MarkConnectionsDirty();
     }
 }

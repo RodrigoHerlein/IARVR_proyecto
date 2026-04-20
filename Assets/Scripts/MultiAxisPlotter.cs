@@ -1,5 +1,4 @@
 using UnityEngine;
-using System.Globalization;
 using System.Collections.Generic;
 using UnityEngine.XR.Interaction.Toolkit;
 using TMPro;
@@ -77,9 +76,7 @@ public class MultiAxisPlotter : MonoBehaviour
     [Header("Dynamic Connections")]
     public float connectionThreshold = 1.5f;
 
-    private float[] minValues;
-    private float[] maxValues;
-    private int numColumns;
+    private CsvDataModel _data;
 
     private Transform[] axisCylinders;
     private Transform[] axisParents;
@@ -87,81 +84,36 @@ public class MultiAxisPlotter : MonoBehaviour
     private List<Dictionary<(int, int), LineRenderer>> rowConnections = new List<Dictionary<(int, int), LineRenderer>>();
     private List<float[]> lineData = new List<float[]>();
 
+    private bool _connectionsDirty = true;
+
     void Start()
     {
-        if (csvFile != null)
-        {
-            CalculateMinMax();
-            CreateAxes();
-            CreateAllConnections();
-        }
-        else
+        if (csvFile == null)
         {
             Debug.LogError("No CSV assigned!");
+            return;
         }
+
+        _data = new CsvDataModel(csvFile);  // una sola lectura
+        CreateAxes();
+        CreateAllConnections();
     }
 
-    void CalculateMinMax()
-    {
-        string[] lines = csvFile.text.Split('\n');
-        string[] headers = lines[0].Split(',');
-        numColumns = headers.Length;
-
-        minValues = new float[numColumns];
-        maxValues = new float[numColumns];
-
-        float paddingPercent = 0.07f; // 7% extra arriba y abajo
-
-        for (int col = 0; col < numColumns; col++)
-        {
-            minValues[col] = float.MaxValue;
-            maxValues[col] = float.MinValue;
-
-            for (int row = 1; row < lines.Length; row++)
-            {
-                if (string.IsNullOrWhiteSpace(lines[row])) continue;
-                string[] values = lines[row].Split(',');
-
-                if (values.Length <= col) continue;
-
-                if (float.TryParse(values[col], NumberStyles.Float, CultureInfo.InvariantCulture, out float val))
-                {
-                    if (val < minValues[col]) minValues[col] = val;
-                    if (val > maxValues[col]) maxValues[col] = val;
-                }
-            }
-
-            // ---------- APLICAR PADDING ----------
-            float range = maxValues[col] - minValues[col];
-            float padding = range * paddingPercent;
-
-            minValues[col] -= padding;
-            maxValues[col] += padding;
-        }
-    }
+    
 
 
     void CreateAxes()
     {
-        string[] lines = csvFile.text.Split('\n');
-        string[] headers = lines[0].Split(',');
+        
+        axisCylinders = new Transform[_data.NumColumns];
+        axisParents = new Transform[_data.NumColumns];
 
-        axisCylinders = new Transform[numColumns];
-        axisParents = new Transform[numColumns];
-
-        for (int col = 0; col < numColumns; col++)
+        for (int col = 0; col < _data.NumColumns; col++)
         {
-            GameObject axisGO = new GameObject("Axis_" + headers[col]);
+            GameObject axisGO = new GameObject("Axis_" + _data.Headers[col]); 
             axisGO.transform.SetParent(transform);
 
-
-            //posicionamiento de ejes en línea recta
             axisGO.transform.localPosition = new Vector3(col * axisSpacing, 0, 0);
-            
-            /*Posicionamiento de ejes en abanico
-            axisGO.transform.localPosition = new Vector3(col * axisSpacing, 0, col * 0.5f);
-            axisGO.transform.localRotation = Quaternion.Euler(0, -10f, 0);
-            */
 
             axisGO.AddComponent<AxisSelectable>();
             axisParents[col] = axisGO.transform;
@@ -171,61 +123,38 @@ public class MultiAxisPlotter : MonoBehaviour
             axis.transform.SetParent(axisGO.transform);
             axis.transform.localScale = new Vector3(axisRadius, axisHeight / 2f, axisRadius);
             axis.transform.localPosition = new Vector3(0, axisHeight / 2f, 0);
-            //Make the capsule collider larger in order to allow interactions with the poligons that are placer in the borders of the axis
+
             var axisCollider = axis.GetComponent<CapsuleCollider>();
             if (axisCollider != null)
             {
-                axisCollider.height = axisHeight * 1.1f; // un poco más alto
+                axisCollider.height = axisHeight * 1.1f;
                 axisCollider.center = new Vector3(0, (axisHeight / 2f) - (axisHeight * 0.5f), 0);
             }
 
-            //Add color to the axis (just aesthetic)
             Renderer rend = axis.GetComponent<Renderer>();
             rend.material = new Material(Shader.Find("Sprites/Default"));
-            rend.material.color = new Color(0.2f, 0.5f, 1f, 0.8f); // azul suave translúcido
-
-/*
-            //Add a top and a base for each axis (just aesthetic)
-            GameObject baseCap = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            baseCap.transform.SetParent(axisGO.transform);
-            baseCap.transform.localScale = Vector3.one * axisRadius * 1.2f;
-            baseCap.transform.localPosition = new Vector3(0, 0, 0);
-            Renderer rendBase = baseCap.GetComponent<Renderer>();
-            rendBase.material = new Material(Shader.Find("Sprites/Default"));
-            rendBase.material.color = Color.gray;
-
-            GameObject topCap = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            topCap.transform.SetParent(axisGO.transform);
-            topCap.transform.localScale = Vector3.one * axisRadius * 1.2f;
-            topCap.transform.localPosition = new Vector3(0, axisHeight, 0);
-            Renderer rendTop = topCap.GetComponent<Renderer>();
-            rendTop.material = new Material(Shader.Find("Sprites/Default"));
-            rendTop.material.color = Color.gray;
-*/
+            rend.material.color = new Color(0.2f, 0.5f, 1f, 0.8f);
 
             axisCylinders[col] = axis.transform;
 
-            //Logic to set labels and show them as billboards
             GameObject axisLabel = new GameObject("AxisLabel");
             axisLabel.transform.SetParent(axisGO.transform);
             axisLabel.transform.localPosition = new Vector3(0, axisHeight + 0.2f, 0);
             TextMeshPro tmp = axisLabel.AddComponent<TextMeshPro>();
             axisLabel.AddComponent<FaceCamera>();
-            tmp.text = headers[col];
+            tmp.text = _data.Headers[col]; // ✅ _data.Headers
             tmp.fontSize = 2;
             tmp.color = Color.white;
             tmp.alignment = TextAlignmentOptions.Center;
 
-            //used for brushing
             var brusher = axis.AddComponent<AxisBrusher>();
             brusher.axisIndex = col;
 
-            //Create labels in different subdivisions of the axis
             for (int i = 0; i <= subdivisions; i++)
             {
                 float t = i / (float)subdivisions;
                 float yPos = t * axisHeight;
-                float value = minValues[col] + t * (maxValues[col] - minValues[col]);
+                float value = _data.MinValues[col] + t * (_data.MaxValues[col] - _data.MinValues[col]); // ✅ _data
 
                 if (tickPrefab != null)
                 {
@@ -237,18 +166,14 @@ public class MultiAxisPlotter : MonoBehaviour
 
                 GameObject lbl;
                 if (labelPrefab != null)
-                {
                     lbl = Instantiate(labelPrefab, axisGO.transform);
-                }
                 else
                 {
                     lbl = new GameObject($"TickLabel_{col}_{i}");
                     lbl.transform.SetParent(axisGO.transform);
                 }
 
-                // Important: name the label always with the axis index and the tick
                 lbl.name = $"TickLabel_{col}_{i}";
-
                 lbl.transform.localPosition = new Vector3(-axisRadius - labelOffset, yPos, 0);
                 lbl.transform.localRotation = Quaternion.identity;
 
@@ -267,30 +192,17 @@ public class MultiAxisPlotter : MonoBehaviour
 
     void CreateAllConnections()
     {
-        string[] lines = csvFile.text.Split('\n');
-
-        for (int row = 1; row < lines.Length; row++)
+        for (int row = 0; row < _data.Rows.Count; row++)
         {
-            if (string.IsNullOrWhiteSpace(lines[row])) continue;
-            string[] values = lines[row].Split(',');
-
-            float[] rowData = new float[numColumns];
-            for (int col = 0; col < numColumns; col++)
-            {
-                if (float.TryParse(values[col], NumberStyles.Float, CultureInfo.InvariantCulture, out float val))
-                {
-                    rowData[col] = val;
-                }
-            }
-            lineData.Add(rowData);
+            lineData.Add(_data.Rows[row]); 
 
             var connDict = new Dictionary<(int, int), LineRenderer>();
 
-            for (int i = 0; i < numColumns; i++)
+            for (int i = 0; i < _data.NumColumns; i++)
             {
-                for (int j = i + 1; j < numColumns; j++)
+                for (int j = i + 1; j < _data.NumColumns; j++)
                 {
-                    GameObject segGO = new GameObject($"Row{row - 1}_Seg{i}_{j}");
+                    GameObject segGO = new GameObject($"Row{row}_Seg{i}_{j}");
                     segGO.transform.SetParent(transform);
                     LineRenderer lr = segGO.AddComponent<LineRenderer>();
                     lr.positionCount = 2;
@@ -298,11 +210,6 @@ public class MultiAxisPlotter : MonoBehaviour
                     lr.endWidth = 0.03f;
                     lr.material = new Material(Shader.Find("Sprites/Default"));
 
-                    //set plain colors for each line
-                    /*lr.startColor = Color.red;
-                    lr.endColor = Color.red;*/
-
-                    //Set a gradient of colors for each linea
                     lr.colorGradient = new Gradient()
                     {
                         colorKeys = new GradientColorKey[]
@@ -317,10 +224,10 @@ public class MultiAxisPlotter : MonoBehaviour
                         }
                     };
                     lr.enabled = false;
-                    //lr.gameObject.SetActive(false);
 
                     var lineSel = segGO.AddComponent<LineSelectable>();
-                    lineSel.rowIndex = row - 1; // Guarda el índice de la fila a la que pertenece
+                    lineSel.rowIndex = row;
+                    lineSel.SetPlotter(this);
 
                     connDict[(i, j)] = lr;
                 }
@@ -332,7 +239,17 @@ public class MultiAxisPlotter : MonoBehaviour
 
     void Update()
     {
-        UpdateConnections();
+        if (_connectionsDirty)
+        {
+            UpdateConnections();
+            _connectionsDirty = false;
+        }
+    }
+
+    // Método público para que otros scripts marquen que algo cambió
+    public void MarkConnectionsDirty()
+    {
+        _connectionsDirty = true;
     }
 
     void UpdateConnections()
@@ -391,7 +308,7 @@ public class MultiAxisPlotter : MonoBehaviour
 
     Vector3 GetWorldPoint(int col, float val)
     {
-        float t = (val - minValues[col]) / (maxValues[col] - minValues[col]);
+        float t = (val - _data.MinValues[col]) / (_data.MaxValues[col] - _data.MinValues[col]);
         float localY = t * maxVisualHeight;
         Vector3 localPoint = new Vector3(0f, localY, 0f);
         return axisCylinders[col].parent.TransformPoint(localPoint);
@@ -419,7 +336,7 @@ public class MultiAxisPlotter : MonoBehaviour
     public float ValueFromHeight(int col, float localY)
     {
         float t = Mathf.Clamp01(localY / maxVisualHeight);
-        return Mathf.Lerp(minValues[col], maxValues[col], t);
+        return Mathf.Lerp(_data.MinValues[col], _data.MaxValues[col], t);
     }
 
     public void HighlightRange(int axisIndex, float minVal, float maxVal, Color color)
@@ -453,7 +370,7 @@ public class MultiAxisPlotter : MonoBehaviour
         // local.y va a estar entre 0 y maxVisualHeight si el axisParent está configurado como en CreateAxes()
         Vector3 local = axisParent.InverseTransformPoint(worldPoint);
         float t = Mathf.Clamp01(local.y / maxVisualHeight);
-        return Mathf.Lerp(minValues[col], maxValues[col], t);
+        return Mathf.Lerp(_data.MinValues[col], _data.MaxValues[col], t);
     }
 
     //Modify axis height using the AxisHeightController class
@@ -510,7 +427,7 @@ public class MultiAxisPlotter : MonoBehaviour
                 if (tmp != null)
                 {
                     
-                    float value = minValues[i] + t * (maxValues[i] - minValues[i]);
+                    float value = _data.MinValues[i] + t * (_data.MaxValues[i] - _data.MinValues[i]);
                     tmp.text = value.ToString("0.0");
                 }
             }
