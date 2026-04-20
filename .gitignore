@@ -2,6 +2,7 @@ Library/
 Temp/
 Obj/
 Build/
+[Ll]ogs/
 *.csproj
 *.unityproj
 *.sln
